@@ -129,16 +129,55 @@ function renderDashboard() {
   $("recentTrades").innerHTML = latest.length ? latest.map(tradeHtml).join("") : "尚無交易紀錄。";
 }
 function holdingHtml(h) {
-  return `<div class="list-item">
+  return `<div class="list-item holding-clickable" onclick="openHoldingDetail('${escapeHtml(h.symbol)}')">
     <div class="item-top">
       <div><span class="symbol">${escapeHtml(h.symbol)} ${escapeHtml(h.name)}</span>
       <div class="meta">${num(h.shares, 0)} 股 · 平均成本 ${num(h.avgCost)} · 現價 ${num(h.currentPrice)}</div></div>
       <strong class="${pnlClass(h.unrealized)}">${money(h.unrealized)}</strong>
     </div>
     <div class="meta">市值 ${money(h.marketValue)} · 報酬率 ${(h.returnRate * 100).toFixed(2)}%</div>
-    <div class="item-actions"><button onclick="openPriceDialog('${escapeHtml(h.symbol)}','${escapeHtml(h.name)}')">更新股價</button></div>
+    <div class="item-actions">
+      <button onclick="event.stopPropagation(); openPriceDialog('${escapeHtml(h.symbol)}','${escapeHtml(h.name)}')">更新股價</button>
+      <button onclick="event.stopPropagation(); openHoldingDetail('${escapeHtml(h.symbol)}')">查看明細</button>
+    </div>
   </div>`;
 }
+
+function openHoldingDetail(symbol) {
+  const portfolio = calculatePortfolio();
+  const h = portfolio.holdings.find(item => item.symbol === symbol);
+  if (!h) return alert("找不到這檔股票的持股資料。");
+
+  const relatedTrades = [...data.trades]
+    .filter(t => t.symbol.trim() === symbol)
+    .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
+
+  $("holdingDetailContent").innerHTML = `
+    <div class="detail-hero">
+      <h2>${escapeHtml(h.symbol)} ${escapeHtml(h.name)}</h2>
+      <div class="meta">${h.assetType === "etf" ? "ETF" : "股票"} · 目前持有中</div>
+    </div>
+
+    <div class="detail-grid">
+      <div class="detail-stat"><span>目前持有</span><strong>${num(h.shares, 0)} 股</strong></div>
+      <div class="detail-stat"><span>平均成本</span><strong>${num(h.avgCost)} 元</strong></div>
+      <div class="detail-stat"><span>目前股價</span><strong>${num(h.currentPrice)} 元</strong></div>
+      <div class="detail-stat"><span>未實現損益</span><strong class="${pnlClass(h.unrealized)}">${money(h.unrealized)}</strong></div>
+      <div class="detail-stat"><span>報酬率</span><strong class="${pnlClass(h.returnRate)}">${(h.returnRate * 100).toFixed(2)}%</strong></div>
+      <div class="detail-stat"><span>目前市值</span><strong>${money(h.marketValue)}</strong></div>
+    </div>
+
+    <div class="item-actions">
+      <button onclick="openPriceDialog('${escapeHtml(h.symbol)}','${escapeHtml(h.name)}')">更新目前股價</button>
+    </div>
+
+    <h3 class="detail-section-title">交易紀錄</h3>
+    <div>${relatedTrades.length ? relatedTrades.map(t => tradeHtml(t, true)).join("") : '<div class="empty">尚無交易紀錄。</div>'}</div>
+  `;
+  navTo("holdingDetail");
+}
+window.openHoldingDetail = openHoldingDetail;
+
 function renderHoldings() {
   const holdings = calculatePortfolio().holdings.sort((a,b) => b.marketValue - a.marketValue);
   $("holdingsList").innerHTML = holdings.length ? holdings.map(holdingHtml).join("") : "尚無持股。";
@@ -309,6 +348,7 @@ $("clearData").addEventListener("click", () => {
   if (!confirm("再次確認：真的要刪除全部交易紀錄嗎？")) return;
   data = structuredClone(DEFAULT_DATA); saveData(); resetTradeForm(); render();
 });
+$("backToHoldings").addEventListener("click", () => navTo("holdings"));
 resetTradeForm();
 render();
 
