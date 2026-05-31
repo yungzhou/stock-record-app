@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#1d4ed8" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="股票紀錄" />
+  <title>我的股票紀錄</title>
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="apple-touch-icon" href="./icon.svg" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>我的股票紀錄</h1>
+      <p class="subtitle">個人買賣紀錄與損益整理</p>
+    </div>
+    <button class="icon-button" id="themeToggle" aria-label="切換深色模式">☾</button>
+  </header>
+
+  <main>
+    <section id="dashboard" class="page active">
+      <div class="summary-grid">
+        <article class="card metric">
+          <span>持股成本</span><strong id="totalCost">NT$0</strong>
+        </article>
+        <article class="card metric">
+          <span>目前市值</span><strong id="marketValue">NT$0</strong>
+        </article>
+        <article class="card metric">
+          <span>未實現損益</span><strong id="unrealizedPnl">NT$0</strong>
+        </article>
+        <article class="card metric">
+          <span>已實現損益</span><strong id="realizedPnl">NT$0</strong>
+        </article>
+      </div>
+
+      <article class="card">
+        <div class="section-head">
+          <h2>持股總覽</h2>
+          <button class="small" data-nav="holdings">查看全部</button>
+        </div>
+        <div id="dashboardHoldings" class="empty">尚無持股。請先新增一筆買進紀錄。</div>
+      </article>
+
+      <article class="card">
+        <div class="section-head">
+          <h2>最近交易</h2>
+          <button class="small" data-nav="history">查看全部</button>
+        </div>
+        <div id="recentTrades" class="empty">尚無交易紀錄。</div>
+      </article>
+    </section>
+
+    <section id="holdings" class="page">
+      <div class="section-head">
+        <div>
+          <h2>目前持股</h2>
+          <p class="helper">點選股票可手動更新目前股價。</p>
+        </div>
+      </div>
+      <div id="holdingsList" class="empty">尚無持股。</div>
+    </section>
+
+    <section id="trade" class="page">
+      <article class="card">
+        <h2 id="tradeFormTitle">新增交易</h2>
+        <form id="tradeForm">
+          <input type="hidden" id="editId" />
+          <div class="form-grid">
+            <label>交易類型
+              <select id="type" required>
+                <option value="buy">買進</option>
+                <option value="sell">賣出</option>
+              </select>
+            </label>
+            <label>商品類型
+              <select id="assetType" required>
+                <option value="stock">股票</option>
+                <option value="etf">ETF</option>
+              </select>
+            </label>
+            <label>股票代號
+              <input id="symbol" inputmode="numeric" placeholder="例如：2330" required />
+            </label>
+            <label>股票名稱
+              <input id="name" placeholder="例如：台積電" required />
+            </label>
+            <label>交易日期
+              <input id="date" type="date" required />
+            </label>
+            <label>成交價格
+              <input id="price" type="number" min="0" step="0.01" inputmode="decimal" placeholder="每股價格" required />
+            </label>
+            <label>股數
+              <input id="shares" type="number" min="1" step="1" inputmode="numeric" placeholder="例如：1000" required />
+            </label>
+            <label>手續費
+              <input id="fee" type="number" min="0" step="1" inputmode="numeric" placeholder="留白則自動估算" />
+            </label>
+            <label id="taxField">證交稅
+              <input id="tax" type="number" min="0" step="1" inputmode="numeric" placeholder="賣出時留白則自動估算" />
+            </label>
+            <label class="wide">備註
+              <textarea id="note" rows="3" placeholder="例如：分批布局第一筆"></textarea>
+            </label>
+          </div>
+          <div class="calc-preview" id="tradePreview"></div>
+          <div class="button-row">
+            <button type="submit" class="primary">儲存交易</button>
+            <button type="button" class="ghost hidden" id="cancelEdit">取消編輯</button>
+          </div>
+        </form>
+      </article>
+    </section>
+
+    <section id="history" class="page">
+      <article class="card">
+        <div class="section-head">
+          <h2>交易紀錄</h2>
+        </div>
+        <div class="filters">
+          <input id="search" placeholder="搜尋股票代號或名稱" />
+          <select id="historyType">
+            <option value="all">全部類型</option>
+            <option value="buy">只看買進</option>
+            <option value="sell">只看賣出</option>
+          </select>
+        </div>
+        <div id="historyList" class="empty">尚無交易紀錄。</div>
+      </article>
+    </section>
+
+    <section id="settings" class="page">
+      <article class="card">
+        <h2>計算設定</h2>
+        <p class="helper">券商費率與折扣可能不同，請依自己的券商帳單調整。</p>
+        <form id="settingsForm" class="form-grid">
+          <label>手續費率
+            <input id="feeRate" type="number" min="0" step="0.000001" />
+          </label>
+          <label>最低手續費
+            <input id="minFee" type="number" min="0" step="1" />
+          </label>
+          <label>股票賣出證交稅率
+            <input id="stockTaxRate" type="number" min="0" step="0.0001" />
+          </label>
+          <label>ETF 賣出證交稅率
+            <input id="etfTaxRate" type="number" min="0" step="0.0001" />
+          </label>
+          <div class="wide">
+            <button type="submit" class="primary">儲存設定</button>
+          </div>
+        </form>
+      </article>
+
+      <article class="card">
+        <h2>資料備份</h2>
+        <p class="helper">資料目前保存在這台裝置的瀏覽器內。建議定期備份到 iCloud Drive 或 Google Drive。</p>
+        <div class="button-stack">
+          <button id="exportJson">匯出 JSON 備份</button>
+          <label class="file-button">匯入 JSON 備份
+            <input type="file" id="importJson" accept=".json,application/json" />
+          </label>
+          <button id="exportCsv">匯出 CSV 報表</button>
+          <button id="clearData" class="danger">清除全部資料</button>
+        </div>
+      </article>
+
+      <article class="card">
+        <h2>第一版說明</h2>
+        <p class="helper">
+          本工具只用於個人交易紀錄，不連接券商、不提供報價，也不是報稅或投資建議工具。
+          損益採移動平均成本計算；請用券商對帳單核對結果。
+        </p>
+      </article>
+    </section>
+  </main>
+
+  <nav class="bottom-nav">
+    <button class="nav-btn active" data-nav="dashboard">⌂<span>首頁</span></button>
+    <button class="nav-btn" data-nav="holdings">▤<span>持股</span></button>
+    <button class="nav-btn add" data-nav="trade">＋<span>新增</span></button>
+    <button class="nav-btn" data-nav="history">≡<span>紀錄</span></button>
+    <button class="nav-btn" data-nav="settings">⚙<span>設定</span></button>
+  </nav>
+
+  <dialog id="priceDialog">
+    <form method="dialog" id="priceForm">
+      <h3 id="priceDialogTitle">更新目前股價</h3>
+      <input type="hidden" id="priceSymbol" />
+      <label>目前股價
+        <input id="currentPrice" type="number" min="0" step="0.01" inputmode="decimal" required />
+      </label>
+      <div class="button-row">
+        <button class="primary" value="save">儲存</button>
+        <button value="cancel">取消</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="./app.js"></script>
+</body>
+</html>
