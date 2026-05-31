@@ -16,14 +16,22 @@
   <header class="topbar">
     <div>
       <h1>我的股票紀錄</h1>
-      <p class="subtitle">個人買賣紀錄與損益整理</p>
+      <p class="subtitle">個人買賣紀錄與資金管理</p>
     </div>
     <button class="icon-button" id="themeToggle" aria-label="切換深色模式">☾</button>
   </header>
 
   <main>
     <section id="dashboard" class="page active">
+      <div class="version-row"><span class="version-badge">版本 v1.3</span></div>
+
       <div class="summary-grid">
+        <article class="card metric featured">
+          <span>可用資金</span><strong id="availableCash">NT$0</strong>
+        </article>
+        <article class="card metric featured">
+          <span>總資產</span><strong id="totalAssets">NT$0</strong>
+        </article>
         <article class="card metric">
           <span>持股成本</span><strong id="totalCost">NT$0</strong>
         </article>
@@ -36,7 +44,20 @@
         <article class="card metric">
           <span>已實現損益</span><strong id="realizedPnl">NT$0</strong>
         </article>
+        <article class="card metric">
+          <span>累積現金股利</span><strong id="dividendIncome">NT$0</strong>
+        </article>
       </div>
+
+      <article class="card" id="cashWarningCard">
+        <div class="section-head">
+          <div>
+            <h2>資金帳戶</h2>
+            <p class="helper" id="cashHint">尚未存入資金。請先到「資金」頁新增一筆存入紀錄。</p>
+          </div>
+          <button class="small" data-nav="funds">管理資金</button>
+        </div>
+      </article>
 
       <article class="card">
         <div class="section-head">
@@ -64,7 +85,6 @@
       </div>
       <div id="holdingsList" class="empty">尚無持股。</div>
     </section>
-
 
     <section id="holdingDetail" class="page">
       <article class="card">
@@ -127,9 +147,7 @@
 
     <section id="history" class="page">
       <article class="card">
-        <div class="section-head">
-          <h2>交易紀錄</h2>
-        </div>
+        <div class="section-head"><h2>交易紀錄</h2></div>
         <div class="filters">
           <input id="search" placeholder="搜尋股票代號或名稱" />
           <select id="historyType">
@@ -139,6 +157,70 @@
           </select>
         </div>
         <div id="historyList" class="empty">尚無交易紀錄。</div>
+      </article>
+    </section>
+
+    <section id="funds" class="page">
+      <div class="summary-grid">
+        <article class="card metric featured">
+          <span>可用資金</span><strong id="fundsAvailableCash">NT$0</strong>
+        </article>
+        <article class="card metric">
+          <span>累積存入</span><strong id="totalDeposits">NT$0</strong>
+        </article>
+        <article class="card metric">
+          <span>累積提領</span><strong id="totalWithdrawals">NT$0</strong>
+        </article>
+        <article class="card metric">
+          <span>累積現金股利</span><strong id="fundsDividendIncome">NT$0</strong>
+        </article>
+      </div>
+
+      <article class="card">
+        <h2 id="cashFormTitle">新增資金異動</h2>
+        <form id="cashForm">
+          <input type="hidden" id="cashEditId" />
+          <div class="form-grid">
+            <label>異動類型
+              <select id="cashType" required>
+                <option value="deposit">資金存入</option>
+                <option value="withdrawal">資金提領</option>
+                <option value="dividend">現金股利</option>
+                <option value="otherIncome">其他收入</option>
+                <option value="otherExpense">其他支出</option>
+              </select>
+            </label>
+            <label>日期
+              <input id="cashDate" type="date" required />
+            </label>
+            <label>金額
+              <input id="cashAmount" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="例如：300000" required />
+            </label>
+            <label class="dividend-only hidden">股票代號
+              <input id="cashSymbol" inputmode="numeric" placeholder="例如：2303" />
+            </label>
+            <label class="dividend-only hidden">股票名稱
+              <input id="cashName" placeholder="例如：聯電" />
+            </label>
+            <label class="wide">備註
+              <textarea id="cashNote" rows="3" placeholder="例如：初始投入資金"></textarea>
+            </label>
+          </div>
+          <div class="button-row">
+            <button type="submit" class="primary">儲存資金異動</button>
+            <button type="button" class="ghost hidden" id="cancelCashEdit">取消編輯</button>
+          </div>
+        </form>
+      </article>
+
+      <article class="card">
+        <div class="section-head">
+          <div>
+            <h2>資金異動紀錄</h2>
+            <p class="helper">股票買進、賣出會自動列入，不需要重複輸入。</p>
+          </div>
+        </div>
+        <div id="cashLedgerList" class="empty">尚無資金異動。</div>
       </article>
     </section>
 
@@ -159,15 +241,13 @@
           <label>ETF 賣出證交稅率
             <input id="etfTaxRate" type="number" min="0" step="0.0001" />
           </label>
-          <div class="wide">
-            <button type="submit" class="primary">儲存設定</button>
-          </div>
+          <div class="wide"><button type="submit" class="primary">儲存設定</button></div>
         </form>
       </article>
 
       <article class="card">
         <h2>資料備份</h2>
-        <p class="helper">資料目前保存在這台裝置的瀏覽器內。建議定期備份到 iCloud Drive 或 Google Drive。</p>
+        <p class="helper">資料保存在這台裝置的瀏覽器內。建議定期備份到 iCloud Drive 或 Google Drive。</p>
         <div class="button-stack">
           <button id="exportJson">匯出 JSON 備份</button>
           <label class="file-button">匯入 JSON 備份
@@ -179,10 +259,10 @@
       </article>
 
       <article class="card">
-        <h2>第一版說明</h2>
+        <h2>v1.3 說明</h2>
         <p class="helper">
-          本工具只用於個人交易紀錄，不連接券商、不提供報價，也不是報稅或投資建議工具。
-          損益採移動平均成本計算；請用券商對帳單核對結果。
+          可用資金 = 手動資金異動 + 賣出淨收入 − 買進總成本。現金股利會加入可用資金。
+          本工具不連接券商、不提供報價，也不是報稅或投資建議工具。請用券商對帳單核對結果。
         </p>
       </article>
     </section>
@@ -193,6 +273,7 @@
     <button class="nav-btn" data-nav="holdings">▤<span>持股</span></button>
     <button class="nav-btn add" data-nav="trade">＋<span>新增</span></button>
     <button class="nav-btn" data-nav="history">≡<span>紀錄</span></button>
+    <button class="nav-btn" data-nav="funds">$<span>資金</span></button>
     <button class="nav-btn" data-nav="settings">⚙<span>設定</span></button>
   </nav>
 
