@@ -1,16 +1,20 @@
 
-const APP_VERSION = "v1.3";
+const APP_VERSION = "v1.4";
 const STORAGE_KEY = "stockRecordAppV1";
 const DEFAULT_DATA = {
   trades: [],
   prices: {},
+  priceUpdatedAt: {},
   cashEntries: [],
   settings: {
     feeRate: 0.001425,
     minFee: 20,
     stockTaxRate: 0.003,
     etfTaxRate: 0.001,
-    darkMode: false
+    darkMode: false,
+    fontSize: "medium",
+    backupReminderDays: 14,
+    lastBackupAt: ""
   }
 };
 
@@ -25,6 +29,7 @@ function loadData() {
     return saved ? {
       trades: Array.isArray(saved.trades) ? saved.trades : [],
       prices: saved.prices && typeof saved.prices === "object" ? saved.prices : {},
+      priceUpdatedAt: saved.priceUpdatedAt && typeof saved.priceUpdatedAt === "object" ? saved.priceUpdatedAt : {},
       cashEntries: Array.isArray(saved.cashEntries) ? saved.cashEntries : [],
       settings: { ...DEFAULT_DATA.settings, ...(saved.settings || {}) }
     } : cloneDefault();
@@ -41,6 +46,17 @@ const num = (n, digits = 2) => Number(n || 0).toLocaleString("zh-TW", { maximumF
 const today = () => new Date().toISOString().slice(0, 10);
 const escapeHtml = (s = "") => String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
 const uid = () => crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+const formatDateTime = (iso) => {
+  if (!iso) return "尚未更新";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "尚未更新" : d.toLocaleString("zh-TW", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+};
+const daysSince = (iso) => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return Math.floor((Date.now() - d.getTime()) / 86400000);
+};
 
 function releaseFocusAndResetView() {
   const active = document.activeElement;
@@ -108,6 +124,7 @@ function calculatePortfolio(trades = data.trades) {
   for (const h of holdings) {
     h.avgCost = h.shares ? h.cost / h.shares : 0;
     h.currentPrice = Number(data.prices[h.symbol] ?? h.avgCost);
+    h.priceUpdatedAt = data.priceUpdatedAt[h.symbol] || "";
     h.marketValue = h.currentPrice * h.shares;
     h.unrealized = h.marketValue - h.cost;
     h.returnRate = h.cost ? h.unrealized / h.cost : 0;
@@ -144,6 +161,8 @@ function pnlClass(n) { return Number(n) >= 0 ? "pnl-positive" : "pnl-negative"; 
 
 function render() {
   document.body.classList.toggle("dark", !!data.settings.darkMode);
+  document.documentElement.classList.toggle("dark", !!data.settings.darkMode);
+  document.documentElement.dataset.fontSize = data.settings.fontSize || "medium";
   $("themeToggle").textContent = data.settings.darkMode ? "☀" : "☾";
   renderDashboard();
   renderHoldings();
@@ -171,6 +190,7 @@ function renderDashboard() {
   $("realizedPnl").textContent = money(p.realizedTotal);
   $("realizedPnl").className = pnlClass(p.realizedTotal);
   $("dividendIncome").textContent = money(c.dividends);
+  renderBackupReminder();
   $("cashHint").innerHTML = c.available < 0
     ? `<span class="warning">目前可用資金為負數。請檢查是否尚未登錄存入資金，或交易資料是否完整。</span>`
     : `目前可用資金為 <strong>${money(c.available)}</strong>。股票買進、賣出與股利入帳會自動反映。`;
@@ -186,6 +206,7 @@ function holdingHtml(h) {
       <strong class="${pnlClass(h.unrealized)}">${money(h.unrealized)}</strong>
     </div>
     <div class="meta">市值 ${money(h.marketValue)} · 報酬率 ${(h.returnRate * 100).toFixed(2)}%</div>
+    <div class="meta ${daysSince(h.priceUpdatedAt) !== null && daysSince(h.priceUpdatedAt) > 7 ? "stale-price" : ""}">股價更新：${formatDateTime(h.priceUpdatedAt)}</div>
     <div class="item-actions">
       <button onclick="event.stopPropagation(); openPriceDialog('${escapeHtml(h.symbol)}','${escapeHtml(h.name)}')">更新股價</button>
       <button onclick="event.stopPropagation(); openHoldingDetail('${escapeHtml(h.symbol)}')">查看明細</button>
@@ -193,7 +214,12 @@ function holdingHtml(h) {
   </div>`;
 }
 function renderHoldings() {
-  const holdings = calculatePortfolio().holdings.sort((a, b) => b.marketValue - a.marketValue);
+  const sortBy = $("holdingSort").value;
+  const holdings = calculatePortfolio().holdings.sort((a, b) => {
+    if (sortBy === "symbol") return a.symbol.localeCompare(b.symbol, "zh-TW", { numeric: true });
+    if (sortBy === "priceUpdatedAt") return String(b.priceUpdatedAt || "").localeCompare(String(a.priceUpdatedAt || ""));
+    return Number(b[sortBy] || 0) - Number(a[sortBy] || 0);
+  });
   $("holdingsList").innerHTML = holdings.length ? holdings.map(holdingHtml).join("") : "尚無持股。";
 }
 function openHoldingDetail(symbol) {
@@ -214,6 +240,7 @@ function openHoldingDetail(symbol) {
       <div class="detail-stat"><span>未實現損益</span><strong class="${pnlClass(h.unrealized)}">${money(h.unrealized)}</strong></div>
       <div class="detail-stat"><span>報酬率</span><strong class="${pnlClass(h.returnRate)}">${(h.returnRate * 100).toFixed(2)}%</strong></div>
       <div class="detail-stat"><span>目前市值</span><strong>${money(h.marketValue)}</strong></div>
+      <div class="detail-stat"><span>股價最後更新</span><strong>${formatDateTime(h.priceUpdatedAt)}</strong></div>
     </div>
     <div class="item-actions"><button onclick="openPriceDialog('${escapeHtml(h.symbol)}','${escapeHtml(h.name)}')">更新目前股價</button></div>
     <h3 class="detail-section-title">交易紀錄</h3>
@@ -432,7 +459,9 @@ window.openPriceDialog = (symbol, name) => {
 $("priceForm").addEventListener("submit", (e) => {
   if (e.submitter?.value !== "save") return;
   e.preventDefault();
-  data.prices[$("priceSymbol").value] = Number($("currentPrice").value);
+  const symbol = $("priceSymbol").value;
+  data.prices[symbol] = Number($("currentPrice").value);
+  data.priceUpdatedAt[symbol] = new Date().toISOString();
   saveData(); $("priceDialog").close(); releaseFocusAndResetView(); render();
 });
 $("backToHoldings").addEventListener("click", () => navTo("holdings"));
@@ -443,7 +472,37 @@ function syncSettings() {
   $("minFee").value = data.settings.minFee;
   $("stockTaxRate").value = data.settings.stockTaxRate;
   $("etfTaxRate").value = data.settings.etfTaxRate;
+  $("fontSize").value = data.settings.fontSize || "medium";
+  $("backupReminderDays").value = String(data.settings.backupReminderDays ?? 14);
+  $("lastBackupText").textContent = `上次備份：${formatDateTime(data.settings.lastBackupAt)}`;
 }
+
+$("displaySettingsForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  data.settings.fontSize = $("fontSize").value;
+  data.settings.backupReminderDays = Number($("backupReminderDays").value);
+  saveData(); releaseFocusAndResetView(); render(); alert("顯示設定已儲存。");
+});
+$("holdingSort").addEventListener("change", renderHoldings);
+
+function renderBackupReminder() {
+  const days = Number(data.settings.backupReminderDays || 0);
+  const card = $("backupReminderCard");
+  if (!days) {
+    card.classList.add("hidden");
+    return;
+  }
+  const elapsed = daysSince(data.settings.lastBackupAt);
+  if (elapsed === null || elapsed >= days) {
+    card.classList.remove("hidden");
+    $("backupReminderText").textContent = elapsed === null
+      ? "尚未匯出過 JSON 備份。建議先建立一份備份。"
+      : `距離上次備份已經 ${elapsed} 天。建議重新匯出 JSON 備份。`;
+  } else {
+    card.classList.add("hidden");
+  }
+}
+
 $("settingsForm").addEventListener("submit", (e) => {
   e.preventDefault();
   data.settings.feeRate = Number($("feeRate").value);
@@ -459,7 +518,12 @@ function download(content, filename, type) {
   a.href = url; a.download = filename; a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-$("exportJson").addEventListener("click", () => download(JSON.stringify({ ...data, appVersion: APP_VERSION }, null, 2), `stock_record_backup_${today()}.json`, "application/json"));
+$("exportJson").addEventListener("click", () => {
+  data.settings.lastBackupAt = new Date().toISOString();
+  saveData();
+  render();
+  download(JSON.stringify({ ...data, appVersion: APP_VERSION }, null, 2), `stock_record_backup_${today()}.json`, "application/json");
+});
 $("importJson").addEventListener("change", async (e) => {
   const file = e.target.files[0];
   if (!file) return;
@@ -470,6 +534,7 @@ $("importJson").addEventListener("change", async (e) => {
     data = {
       trades: imported.trades,
       prices: imported.prices || {},
+      priceUpdatedAt: imported.priceUpdatedAt && typeof imported.priceUpdatedAt === "object" ? imported.priceUpdatedAt : {},
       cashEntries: Array.isArray(imported.cashEntries) ? imported.cashEntries : [],
       settings: { ...DEFAULT_DATA.settings, ...(imported.settings || {}) }
     };

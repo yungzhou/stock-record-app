@@ -98,3 +98,31 @@ dialog::backdrop { background: rgba(0, 0, 0, .35); }
   .form-grid { grid-template-columns: 1fr; }
   .wide { grid-column: auto; }
 }
+
+
+/* v1.4：避免夜間模式資料較少時露出瀏覽器白底 */
+html, body { min-height: 100%; }
+html { background: #f3f6fb; }
+html.dark { background: #101827; }
+body { min-height: 100dvh; }
+main { min-height: calc(100dvh - 92px); background: inherit; }
+.page.active { min-height: calc(100dvh - 178px); background: inherit; }
+
+/* v1.4：可調整字體大小 */
+:root { --font-scale: 1; }
+html[data-font-size="small"] { --font-scale: .90; }
+html[data-font-size="medium"] { --font-scale: 1; }
+html[data-font-size="large"] { --font-scale: 1.15; }
+body, button { font-size: calc(16px * var(--font-scale)); }
+h1 { font-size: calc(26px * var(--font-scale)); }
+h2 { font-size: calc(19px * var(--font-scale)); }
+.subtitle, .helper, .meta, label, .small { font-size: calc(13px * var(--font-scale)); }
+.metric span, .version-badge, .nav-btn span { font-size: calc(12px * var(--font-scale)); }
+.metric strong { font-size: calc(20px * var(--font-scale)); }
+.detail-stat strong { font-size: calc(17px * var(--font-scale)); }
+/* iPhone Safari 聚焦輸入框時，字體仍至少 16px，降低自動放大 */
+input, select, textarea { font-size: max(16px, calc(16px * var(--font-scale))); }
+
+.quick-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.sort-control { margin-bottom: 12px; }
+.stale-price { color: var(--warning); }
