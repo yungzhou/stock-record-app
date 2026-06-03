@@ -23,7 +23,35 @@
 
   <main>
     <section id="dashboard" class="page active">
-      <div class="version-row"><span class="version-badge">版本 v1.6</span></div>
+      <div class="version-row"><span class="version-badge">版本 v1.7</span></div>
+
+      <article class="card asset-chart-card">
+        <div class="section-head chart-title-row">
+          <div>
+            <h2>資產走勢</h2>
+            <p class="helper" id="assetChartSummary">正在整理歷史資產資料。</p>
+          </div>
+        </div>
+        <div class="chart-range-row" id="chartRangeButtons">
+          <button class="chart-range" data-range="30">1 個月</button>
+          <button class="chart-range" data-range="90">3 個月</button>
+          <button class="chart-range" data-range="180">6 個月</button>
+          <button class="chart-range" data-range="ytd">今年</button>
+          <button class="chart-range" data-range="365">1 年</button>
+          <button class="chart-range" data-range="1825">5 年</button>
+          <button class="chart-range" data-range="3650">10 年</button>
+          <button class="chart-range active" data-range="all">全部</button>
+        </div>
+        <div class="asset-chart-wrap">
+          <svg id="assetChartSvg" viewBox="0 0 720 280" role="img" aria-label="總資產走勢圖"></svg>
+          <div id="assetChartEmpty" class="chart-empty hidden">新增資金或交易紀錄後，這裡會顯示資產走勢。</div>
+        </div>
+        <div id="assetChartDetail" class="chart-detail">點擊圖表資料點，可查看當日明細。</div>
+        <div class="chart-footnote">
+          歷史資金異動會從最早紀錄回推。缺少當日股價的歷史持股市值，會以當時持股成本估算並清楚標示；不會用今天股價冒充過去市值。
+        </div>
+      </article>
+
 
       <div class="summary-grid">
         <article class="card metric featured">
@@ -52,26 +80,6 @@
 
 
 
-      <article class="card asset-chart-card">
-        <div class="section-head chart-title-row">
-          <div>
-            <h2>資產走勢</h2>
-            <p class="helper" id="assetChartSummary">尚未累積足夠資料。</p>
-          </div>
-        </div>
-        <div class="chart-range-row" id="chartRangeButtons">
-          <button class="chart-range active" data-range="30">1 個月</button>
-          <button class="chart-range" data-range="90">3 個月</button>
-          <button class="chart-range" data-range="180">6 個月</button>
-          <button class="chart-range" data-range="ytd">今年</button>
-          <button class="chart-range" data-range="all">全部</button>
-        </div>
-        <div class="asset-chart-wrap">
-          <svg id="assetChartSvg" viewBox="0 0 640 240" role="img" aria-label="總資產走勢圖"></svg>
-          <div id="assetChartEmpty" class="chart-empty hidden">資料累積後，這裡會顯示總資產走勢。</div>
-        </div>
-        <div class="chart-footnote">同一天只保留最後一筆資產快照。尚未更新現價的持股會暫以成本估算。</div>
-      </article>
 
       <article class="card compact-card">
         <div class="section-head">
@@ -342,7 +350,7 @@
       </article>
 
       <article class="card">
-        <h2>v1.6 說明</h2>
+        <h2>v1.7 說明</h2>
         <p class="helper">
           可用資金 = 手動資金異動 + 賣出淨收入 − 買進總成本。現金股利會加入可用資金。
           本工具不連接券商、不提供報價，也不是報稅或投資建議工具。請用券商對帳單核對結果。

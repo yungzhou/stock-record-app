@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v1.6";
+const APP_VERSION = "v1.7";
 const STORAGE_KEY = "stockRecordAppV1";
 const DEFAULT_DATA = {
   trades: [],
@@ -10,7 +10,8 @@ const DEFAULT_DATA = {
   ui: {
     holdingSort: "symbol",
     holdingSortDir: "asc",
-    chartRange: "30"
+    chartRange: "all",
+    chartRangeV17Initialized: true
   },
   settings: {
     feeRate: 0.001425,
@@ -38,7 +39,12 @@ function loadData() {
       priceUpdatedAt: saved.priceUpdatedAt && typeof saved.priceUpdatedAt === "object" ? saved.priceUpdatedAt : {},
       cashEntries: Array.isArray(saved.cashEntries) ? saved.cashEntries : [],
       snapshots: Array.isArray(saved.snapshots) ? saved.snapshots : [],
-      ui: { ...DEFAULT_DATA.ui, ...(saved.ui || {}) },
+      ui: {
+        ...DEFAULT_DATA.ui,
+        ...(saved.ui || {}),
+        chartRange: saved.ui && saved.ui.chartRangeV17Initialized ? (saved.ui.chartRange || "all") : "all",
+        chartRangeV17Initialized: true
+      },
       settings: { ...DEFAULT_DATA.settings, ...(saved.settings || {}) }
     } : cloneDefault();
   } catch {
@@ -213,7 +219,8 @@ function calculateAssetSnapshot() {
     totalAssets: c.available + estimatedMarketValue,
     updatedPriceCount: updatedCount,
     holdingsCount: p.holdings.length,
-    isEstimated: updatedCount < p.holdings.length
+    isEstimated: updatedCount < p.holdings.length,
+    source: "snapshot"
   };
 }
 function upsertTodaySnapshot() {
@@ -224,6 +231,89 @@ function upsertTodaySnapshot() {
   data.snapshots.sort((a, b) => a.date.localeCompare(b.date));
   saveData();
 }
+function applyHistoricalTrade(state, raw) {
+  const t = normalizeTrade(raw);
+  const symbol = t.symbol.trim();
+  if (!state.holdings[symbol]) state.holdings[symbol] = { shares: 0, cost: 0 };
+  const h = state.holdings[symbol];
+  const amount = t.price * t.shares;
+  state.availableCash += tradeCashSigned(t);
+  if (t.type === "buy") {
+    h.shares += t.shares;
+    h.cost += amount + t.fee;
+  } else {
+    const sellShares = Math.min(t.shares, h.shares);
+    const avgCost = h.shares > 0 ? h.cost / h.shares : 0;
+    h.shares -= sellShares;
+    h.cost -= avgCost * sellShares;
+    if (h.shares < 0.000001) {
+      h.shares = 0;
+      h.cost = 0;
+    }
+  }
+}
+function historicalHoldingCost(state) {
+  return Object.values(state.holdings).reduce((sum, h) => sum + (h.shares > 0 ? Number(h.cost || 0) : 0), 0);
+}
+function historicalHoldingsCount(state) {
+  return Object.values(state.holdings).filter(h => h.shares > 0).length;
+}
+function buildHistoricalAssetPoints() {
+  const eventsByDate = new Map();
+  const addEvent = (date, createdAt, kind, payload, order) => {
+    if (!date) return;
+    if (!eventsByDate.has(date)) eventsByDate.set(date, []);
+    eventsByDate.get(date).push({ date, createdAt: Number(createdAt || 0), kind, payload, order });
+  };
+  data.cashEntries.forEach((entry, index) => addEvent(entry.date, entry.createdAt, "cash", entry, index));
+  data.trades.forEach((trade, index) => addEvent(trade.date, trade.createdAt, "trade", trade, 100000 + index));
+
+  const snapshotsByDate = new Map();
+  (data.snapshots || []).forEach(snapshot => {
+    if (snapshot && snapshot.date) snapshotsByDate.set(snapshot.date, snapshot);
+  });
+
+  const dates = [...new Set([...eventsByDate.keys(), ...snapshotsByDate.keys()])].sort();
+  const state = { availableCash: 0, holdings: {} };
+  const points = [];
+
+  for (const date of dates) {
+    const events = (eventsByDate.get(date) || []).sort((a, b) => a.createdAt - b.createdAt || a.order - b.order);
+    for (const event of events) {
+      if (event.kind === "cash") state.availableCash += manualCashSigned(event.payload);
+      else applyHistoricalTrade(state, event.payload);
+    }
+
+    const holdingCost = historicalHoldingCost(state);
+    const holdingsCount = historicalHoldingsCount(state);
+    const snapshot = snapshotsByDate.get(date);
+
+    if (snapshot) {
+      const marketValue = Number(snapshot.marketValue ?? holdingCost);
+      const availableCash = Number(snapshot.availableCash ?? state.availableCash);
+      points.push({
+        date,
+        availableCash,
+        marketValue,
+        totalAssets: Number(snapshot.totalAssets ?? (availableCash + marketValue)),
+        holdingsCount: Number(snapshot.holdingsCount ?? holdingsCount),
+        isEstimated: Boolean(snapshot.isEstimated),
+        source: "snapshot"
+      });
+    } else {
+      points.push({
+        date,
+        availableCash: state.availableCash,
+        marketValue: holdingCost,
+        totalAssets: state.availableCash + holdingCost,
+        holdingsCount,
+        isEstimated: holdingsCount > 0,
+        source: "reconstructed"
+      });
+    }
+  }
+  return points;
+}
 function snapshotRangeStart(range) {
   const now = new Date();
   if (range === "all") return null;
@@ -233,52 +323,124 @@ function snapshotRangeStart(range) {
   start.setDate(start.getDate() - days + 1);
   return localDateKey(start);
 }
-function filteredSnapshots() {
-  const range = data.ui.chartRange || "30";
+function filteredHistoricalAssetPoints() {
+  const range = data.ui.chartRange || "all";
   const start = snapshotRangeStart(range);
-  return data.snapshots
-    .filter(s => !start || s.date >= start)
+  return buildHistoricalAssetPoints()
+    .filter(point => !start || point.date >= start)
     .sort((a, b) => a.date.localeCompare(b.date));
 }
-function formatShortDate(dateStr) {
+function formatShortDate(dateStr, range = data.ui.chartRange || "all") {
   const parts = String(dateStr).split("-");
-  return parts.length === 3 ? `${Number(parts[1])}/${Number(parts[2])}` : dateStr;
+  if (parts.length !== 3) return dateStr;
+  if (["1825", "3650", "all"].includes(String(range))) return `${parts[0]}/${Number(parts[1])}`;
+  return `${Number(parts[1])}/${Number(parts[2])}`;
 }
+function compactAssetLabel(value) {
+  const n = Number(value || 0);
+  const abs = Math.abs(n);
+  if (abs >= 100000000) return `${(n / 100000000).toFixed(abs >= 1000000000 ? 0 : 1)} 億`;
+  if (abs >= 10000) return `${(n / 10000).toFixed(abs >= 100000 ? 0 : 1)} 萬`;
+  return Math.round(n).toLocaleString("zh-TW");
+}
+function downsamplePoints(points, maxPoints = 100) {
+  if (points.length <= maxPoints) return points;
+  const result = [];
+  for (let i = 0; i < maxPoints; i++) {
+    const index = Math.round(i * (points.length - 1) / (maxPoints - 1));
+    result.push(points[index]);
+  }
+  return result.filter((point, index, arr) => index === 0 || point.date !== arr[index - 1].date);
+}
+function axisLabelIndices(length, count = 5) {
+  if (length <= 1) return [0];
+  const actualCount = Math.min(count, length);
+  return [...new Set(Array.from({ length: actualCount }, (_, i) => Math.round(i * (length - 1) / (actualCount - 1))))];
+}
+function showAssetPointDetail(index) {
+  const point = (window.currentChartPoints || [])[Number(index)];
+  if (!point) return;
+  $("assetChartDetail").innerHTML = `
+    <strong>${escapeHtml(point.date)}</strong><br>
+    總資產：${money(point.totalAssets)}<br>
+    可用資金：${money(point.availableCash)}<br>
+    持股市值：${money(point.marketValue)}<br>
+    資料狀態：<span class="${point.isEstimated ? "chart-estimate-note" : ""}">${point.isEstimated ? "部分估算" : "已記錄"}</span>
+  `;
+}
+window.showAssetPointDetail = showAssetPointDetail;
 function renderAssetChart() {
   const svg = $("assetChartSvg");
   const empty = $("assetChartEmpty");
-  const points = filteredSnapshots();
-  document.querySelectorAll(".chart-range").forEach(btn => btn.classList.toggle("active", btn.dataset.range === String(data.ui.chartRange || "30")));
+  const allPoints = filteredHistoricalAssetPoints();
+  const points = downsamplePoints(allPoints);
+  window.currentChartPoints = points;
+
+  document.querySelectorAll(".chart-range").forEach(btn => btn.classList.toggle("active", btn.dataset.range === String(data.ui.chartRange || "all")));
+
   if (!points.length) {
     svg.innerHTML = "";
     empty.classList.remove("hidden");
-    $("assetChartSummary").textContent = "尚未累積足夠資料。";
+    $("assetChartSummary").textContent = "尚未有可顯示的資產紀錄。";
+    $("assetChartDetail").textContent = "新增資金或交易紀錄後，會從最早一筆開始建立資產走勢。";
     return;
   }
+
   empty.classList.add("hidden");
-  const width = 640, height = 240;
-  const pad = { left: 26, right: 26, top: 30, bottom: 34 };
-  const values = points.map(p => Number(p.totalAssets || 0));
+  const width = 720, height = 280;
+  const pad = { left: 18, right: 88, top: 26, bottom: 42 };
+  const values = points.map(point => Number(point.totalAssets || 0));
   let min = Math.min(...values), max = Math.max(...values);
-  if (min === max) { min -= Math.max(1, Math.abs(min) * 0.03); max += Math.max(1, Math.abs(max) * 0.03); }
-  const x = (i) => pad.left + (points.length === 1 ? (width - pad.left - pad.right) / 2 : i * (width - pad.left - pad.right) / (points.length - 1));
-  const y = (v) => pad.top + (max - v) * (height - pad.top - pad.bottom) / (max - min);
-  const coords = points.map((p, i) => [x(i), y(Number(p.totalAssets || 0))]);
-  const line = coords.map(([cx, cy], i) => `${i ? "L" : "M"} ${cx.toFixed(1)} ${cy.toFixed(1)}`).join(" ");
+  if (min === max) {
+    min -= Math.max(1, Math.abs(min) * 0.05);
+    max += Math.max(1, Math.abs(max) * 0.05);
+  }
+  const chartW = width - pad.left - pad.right;
+  const chartH = height - pad.top - pad.bottom;
+  const x = index => pad.left + (points.length === 1 ? chartW / 2 : index * chartW / (points.length - 1));
+  const y = value => pad.top + (max - value) * chartH / (max - min);
+  const coords = points.map((point, index) => [x(index), y(Number(point.totalAssets || 0))]);
+  const line = coords.map(([cx, cy], index) => `${index ? "L" : "M"} ${cx.toFixed(1)} ${cy.toFixed(1)}`).join(" ");
   const area = `${line} L ${coords[coords.length - 1][0].toFixed(1)} ${(height - pad.bottom).toFixed(1)} L ${coords[0][0].toFixed(1)} ${(height - pad.bottom).toFixed(1)} Z`;
-  const first = values[0], last = values[values.length - 1], change = last - first;
+
+  const first = Number(allPoints[0].totalAssets || 0);
+  const last = Number(allPoints[allPoints.length - 1].totalAssets || 0);
+  const change = last - first;
   const rate = first ? change / first * 100 : 0;
-  $("assetChartSummary").innerHTML = `目前 ${money(last)} · 區間變化 <strong class="${pnlClass(change)}">${change >= 0 ? "+" : ""}${money(change)} (${change >= 0 ? "+" : ""}${rate.toFixed(2)}%)</strong>`;
-  const horizontal = [0, .5, 1].map(r => {
-    const gy = pad.top + r * (height - pad.top - pad.bottom);
-    return `<line class="chart-grid" x1="${pad.left}" y1="${gy}" x2="${width-pad.right}" y2="${gy}"/>`;
+  const estimatedCount = allPoints.filter(point => point.isEstimated).length;
+  $("assetChartSummary").innerHTML = `目前 ${money(last)} · 區間變化 <strong class="${pnlClass(change)}">${change >= 0 ? "+" : ""}${money(change)} (${change >= 0 ? "+" : ""}${rate.toFixed(2)}%)</strong>${estimatedCount ? ` · <span class="chart-estimate-note">${estimatedCount} 個節點含估算</span>` : ""}`;
+
+  const yTicks = Array.from({ length: 5 }, (_, index) => {
+    const ratio = index / 4;
+    const value = max - (max - min) * ratio;
+    const gy = pad.top + chartH * ratio;
+    return `
+      <line class="chart-grid" x1="${pad.left}" y1="${gy}" x2="${width - pad.right}" y2="${gy}"/>
+      <text class="chart-y-label" text-anchor="end" x="${width - 5}" y="${gy + 5}">${compactAssetLabel(value)}</text>
+    `;
   }).join("");
-  const labels = [
-    `<text class="chart-label" x="${pad.left}" y="${height - 8}">${formatShortDate(points[0].date)}</text>`,
-    `<text class="chart-label" text-anchor="end" x="${width - pad.right}" y="${height - 8}">${formatShortDate(points[points.length-1].date)}</text>`
-  ].join("");
-  const dots = coords.map(([cx, cy], i) => `<circle class="chart-dot" cx="${cx}" cy="${cy}" r="${i === coords.length - 1 ? 6 : 4}"><title>${points[i].date} ${money(points[i].totalAssets)}${points[i].isEstimated ? "（估算）" : ""}</title></circle>`).join("");
-  svg.innerHTML = `${horizontal}<path class="chart-area" d="${area}"/><path class="chart-line" d="${line}"/>${dots}${labels}`;
+
+  const xLabels = axisLabelIndices(points.length, 5).map((pointIndex, position, indices) => {
+    const anchor = position === 0 ? "start" : (position === indices.length - 1 ? "end" : "middle");
+    return `<text class="chart-axis-label" text-anchor="${anchor}" x="${x(pointIndex)}" y="${height - 10}">${formatShortDate(points[pointIndex].date)}</text>`;
+  }).join("");
+
+  const dots = coords.map(([cx, cy], index) => {
+    const point = points[index];
+    return `<circle class="${point.isEstimated ? "chart-dot-estimated" : "chart-dot"}" cx="${cx}" cy="${cy}" r="${index === coords.length - 1 ? 6 : 4}" onclick="showAssetPointDetail(${index})">
+      <title>${point.date} ${money(point.totalAssets)}${point.isEstimated ? "（部分估算）" : ""}</title>
+    </circle>`;
+  }).join("");
+
+  svg.innerHTML = `
+    ${yTicks}
+    <line class="chart-axis-line" x1="${width - pad.right}" y1="${pad.top}" x2="${width - pad.right}" y2="${height - pad.bottom}"/>
+    <path class="chart-area" d="${area}"/>
+    <path class="chart-line" d="${line}"/>
+    ${dots}
+    ${xLabels}
+  `;
+  showAssetPointDetail(points.length - 1);
 }
 
 function render() {
@@ -690,7 +852,7 @@ $("exportJson").addEventListener("click", () => {
   data.settings.lastBackupAt = new Date().toISOString();
   saveData();
   render();
-  download(JSON.stringify({ ...data, appVersion: APP_VERSION }, null, 2), `stock_record_backup_${today()}.json`, "application/json");
+  download(JSON.stringify({ ...data, appVersion: APP_VERSION, historicalAssetPoints: buildHistoricalAssetPoints() }, null, 2), `stock_record_backup_${today()}.json`, "application/json");
 });
 $("importJson").addEventListener("change", async (e) => {
   const file = e.target.files[0];

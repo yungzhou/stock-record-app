@@ -254,3 +254,44 @@ input, select, textarea { font-size: max(16px, calc(16px * var(--font-scale))); 
   .number-cell { font-size: calc(13px * var(--font-scale)); }
   .stock-name { font-size: calc(14px * var(--font-scale)); }
 }
+
+
+/* v1.7：資產走勢圖日期軸、右側資產刻度與明細 */
+.asset-chart-wrap { min-height: 250px; }
+#assetChartSvg { height: 250px; }
+.chart-axis-label {
+  fill: var(--muted);
+  font-size: 17px;
+}
+.chart-y-label {
+  fill: var(--muted);
+  font-size: 16px;
+}
+.chart-axis-line {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+.chart-dot { cursor: pointer; }
+.chart-dot-estimated {
+  cursor: pointer;
+  fill: var(--surface);
+  stroke: var(--warning);
+  stroke-width: 3;
+}
+.chart-detail {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 11px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: calc(13px * var(--font-scale));
+  line-height: 1.65;
+}
+.chart-estimate-note {
+  color: var(--warning);
+  font-weight: 700;
+}
+@media (max-width: 430px) {
+  .chart-range-row { gap: 5px; }
+  .chart-range { padding: 6px 8px; }
+}
