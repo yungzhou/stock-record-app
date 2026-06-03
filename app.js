@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v1.4";
+const APP_VERSION = "v1.5";
 const STORAGE_KEY = "stockRecordAppV1";
 const DEFAULT_DATA = {
   trades: [],
@@ -123,11 +123,14 @@ function calculatePortfolio(trades = data.trades) {
   const holdings = Object.values(map).filter(h => h.shares > 0);
   for (const h of holdings) {
     h.avgCost = h.shares ? h.cost / h.shares : 0;
-    h.currentPrice = Number(data.prices[h.symbol] ?? h.avgCost);
+    const rawPrice = data.prices[h.symbol];
+    h.hasCurrentPrice = rawPrice !== undefined && rawPrice !== null && rawPrice !== "" && Number(rawPrice) >= 0;
+    h.currentPrice = h.hasCurrentPrice ? Number(rawPrice) : null;
     h.priceUpdatedAt = data.priceUpdatedAt[h.symbol] || "";
-    h.marketValue = h.currentPrice * h.shares;
-    h.unrealized = h.marketValue - h.cost;
-    h.returnRate = h.cost ? h.unrealized / h.cost : 0;
+    h.marketValue = h.hasCurrentPrice ? h.currentPrice * h.shares : null;
+    h.estimatedMarketValue = h.hasCurrentPrice ? h.marketValue : h.avgCost * h.shares;
+    h.unrealized = h.hasCurrentPrice ? h.marketValue - h.cost : null;
+    h.returnRate = h.hasCurrentPrice && h.cost ? h.unrealized / h.cost : null;
   }
   return { holdings, map, realizedTotal };
 }
@@ -152,12 +155,33 @@ function calculateCashSummary() {
   const dividends = data.cashEntries.filter(e => e.type === "dividend").reduce((s, e) => s + Number(e.amount || 0), 0);
   return { available, deposits, withdrawals, dividends };
 }
+
+function validateInventoryTimeline(trades) {
+  const holdings = {};
+  for (const raw of sortedTrades(trades)) {
+    const t = normalizeTrade(raw);
+    const symbol = t.symbol.trim();
+    if (!holdings[symbol]) holdings[symbol] = 0;
+    holdings[symbol] += t.type === "buy" ? t.shares : -t.shares;
+    if (holdings[symbol] < -0.000001) {
+      return { ok: false, trade: t, symbol, availableBefore: holdings[symbol] + t.shares };
+    }
+  }
+  return { ok: true };
+}
+function inventoryErrorMessage(result) {
+  return `無法儲存或刪除這筆交易。\n\n${result.trade.date} 的 ${result.symbol} ${result.trade.name} 賣出紀錄會超過當時可用庫存。\n當時最多可賣出：${num(result.availableBefore, 0)} 股。`;
+}
+
 function validateSell(symbol, shares, editingId = "") {
   const trades = data.trades.filter(t => t.id !== editingId);
   const available = calculatePortfolio(trades).map[symbol]?.shares || 0;
   return { ok: Number(shares) <= available, available };
 }
-function pnlClass(n) { return Number(n) >= 0 ? "pnl-positive" : "pnl-negative"; }
+function pnlClass(n) {
+  if (n === null || n === undefined || Number(n) === 0) return "pnl-neutral";
+  return Number(n) > 0 ? "pnl-positive" : "pnl-negative";
+}
 
 function render() {
   document.body.classList.toggle("dark", !!data.settings.darkMode);
@@ -176,17 +200,24 @@ function renderDashboard() {
   const p = calculatePortfolio();
   const c = calculateCashSummary();
   const totalCost = p.holdings.reduce((s, h) => s + h.cost, 0);
-  const market = p.holdings.reduce((s, h) => s + h.marketValue, 0);
-  const unrealized = market - totalCost;
-  const assets = c.available + market;
+  const updatedCount = p.holdings.filter(h => h.hasCurrentPrice).length;
+  const marketKnown = p.holdings.reduce((s, h) => s + (h.marketValue ?? 0), 0);
+  const estimatedMarket = p.holdings.reduce((s, h) => s + h.estimatedMarketValue, 0);
+  const allPricesUpdated = p.holdings.length === 0 || updatedCount === p.holdings.length;
+  const unrealized = allPricesUpdated ? marketKnown - totalCost : null;
+  const assets = c.available + (allPricesUpdated ? marketKnown : estimatedMarket);
   $("availableCash").textContent = money(c.available);
   $("availableCash").className = pnlClass(c.available);
-  $("totalAssets").textContent = money(assets);
-  $("totalAssets").className = pnlClass(assets);
+  $("totalAssets").innerHTML = allPricesUpdated ? money(assets) : `估算 ${money(assets)}`;
+  $("totalAssets").className = allPricesUpdated ? pnlClass(assets) : "warning";
   $("totalCost").textContent = money(totalCost);
-  $("marketValue").textContent = money(market);
-  $("unrealizedPnl").textContent = money(unrealized);
+  $("marketValue").innerHTML = allPricesUpdated ? money(marketKnown) : `估算 ${money(estimatedMarket)}`;
+  $("marketValue").className = allPricesUpdated ? "" : "warning";
+  $("unrealizedPnl").textContent = unrealized === null ? "—" : money(unrealized);
   $("unrealizedPnl").className = pnlClass(unrealized);
+  $("priceCompletenessText").innerHTML = p.holdings.length === 0
+    ? "尚無持股。"
+    : `已更新 <strong>${updatedCount} / ${p.holdings.length}</strong> 檔持股現價。${allPricesUpdated ? "目前損益資料完整。" : '<span class="price-missing">尚有股票未輸入現價，總資產暫以成本估算。</span>'}`;
   $("realizedPnl").textContent = money(p.realizedTotal);
   $("realizedPnl").className = pnlClass(p.realizedTotal);
   $("dividendIncome").textContent = money(c.dividends);
@@ -199,17 +230,20 @@ function renderDashboard() {
   $("recentTrades").innerHTML = latest.length ? latest.map(tradeHtml).join("") : "尚無交易紀錄。";
 }
 function holdingHtml(h) {
+  const priceText = h.hasCurrentPrice ? num(h.currentPrice) : '<span class="price-missing">尚未更新</span>';
+  const pnlText = h.hasCurrentPrice ? money(h.unrealized) : "—";
+  const marketText = h.hasCurrentPrice ? money(h.marketValue) : "—";
+  const rateText = h.hasCurrentPrice ? `${(h.returnRate * 100).toFixed(2)}%` : "—";
   return `<div class="list-item holding-clickable" onclick="openHoldingDetail('${escapeHtml(h.symbol)}')">
     <div class="item-top">
       <div><span class="symbol">${escapeHtml(h.symbol)} ${escapeHtml(h.name)}</span>
-      <div class="meta">${num(h.shares, 0)} 股 · 平均成本 ${num(h.avgCost)} · 現價 ${num(h.currentPrice)}</div></div>
-      <strong class="${pnlClass(h.unrealized)}">${money(h.unrealized)}</strong>
+      <div class="meta">${num(h.shares, 0)} 股 · 平均成本 ${num(h.avgCost)} · 現價 ${priceText}</div></div>
+      <strong class="${pnlClass(h.unrealized)}">${pnlText}</strong>
     </div>
-    <div class="meta">市值 ${money(h.marketValue)} · 報酬率 ${(h.returnRate * 100).toFixed(2)}%</div>
+    <div class="meta">市值 ${marketText} · 報酬率 ${rateText}</div>
     <div class="meta ${daysSince(h.priceUpdatedAt) !== null && daysSince(h.priceUpdatedAt) > 7 ? "stale-price" : ""}">股價更新：${formatDateTime(h.priceUpdatedAt)}</div>
     <div class="item-actions">
       <button onclick="event.stopPropagation(); openPriceDialog('${escapeHtml(h.symbol)}','${escapeHtml(h.name)}')">更新股價</button>
-      <button onclick="event.stopPropagation(); openHoldingDetail('${escapeHtml(h.symbol)}')">查看明細</button>
     </div>
   </div>`;
 }
@@ -218,7 +252,9 @@ function renderHoldings() {
   const holdings = calculatePortfolio().holdings.sort((a, b) => {
     if (sortBy === "symbol") return a.symbol.localeCompare(b.symbol, "zh-TW", { numeric: true });
     if (sortBy === "priceUpdatedAt") return String(b.priceUpdatedAt || "").localeCompare(String(a.priceUpdatedAt || ""));
-    return Number(b[sortBy] || 0) - Number(a[sortBy] || 0);
+    const bv = b[sortBy] === null ? -Infinity : Number(b[sortBy] || 0);
+    const av = a[sortBy] === null ? -Infinity : Number(a[sortBy] || 0);
+    return bv - av;
   });
   $("holdingsList").innerHTML = holdings.length ? holdings.map(holdingHtml).join("") : "尚無持股。";
 }
@@ -236,10 +272,10 @@ function openHoldingDetail(symbol) {
     <div class="detail-grid">
       <div class="detail-stat"><span>目前持有</span><strong>${num(h.shares, 0)} 股</strong></div>
       <div class="detail-stat"><span>平均成本</span><strong>${num(h.avgCost)} 元</strong></div>
-      <div class="detail-stat"><span>目前股價</span><strong>${num(h.currentPrice)} 元</strong></div>
-      <div class="detail-stat"><span>未實現損益</span><strong class="${pnlClass(h.unrealized)}">${money(h.unrealized)}</strong></div>
-      <div class="detail-stat"><span>報酬率</span><strong class="${pnlClass(h.returnRate)}">${(h.returnRate * 100).toFixed(2)}%</strong></div>
-      <div class="detail-stat"><span>目前市值</span><strong>${money(h.marketValue)}</strong></div>
+      <div class="detail-stat"><span>目前股價</span><strong>${h.hasCurrentPrice ? `${num(h.currentPrice)} 元` : '<span class="price-missing">尚未更新</span>'}</strong></div>
+      <div class="detail-stat"><span>未實現損益</span><strong class="${pnlClass(h.unrealized)}">${h.hasCurrentPrice ? money(h.unrealized) : "—"}</strong></div>
+      <div class="detail-stat"><span>報酬率</span><strong class="${pnlClass(h.returnRate)}">${h.hasCurrentPrice ? `${(h.returnRate * 100).toFixed(2)}%` : "—"}</strong></div>
+      <div class="detail-stat"><span>目前市值</span><strong>${h.hasCurrentPrice ? money(h.marketValue) : "—"}</strong></div>
       <div class="detail-stat"><span>股價最後更新</span><strong>${formatDateTime(h.priceUpdatedAt)}</strong></div>
     </div>
     <div class="item-actions"><button onclick="openPriceDialog('${escapeHtml(h.symbol)}','${escapeHtml(h.name)}')">更新目前股價</button></div>
@@ -308,16 +344,17 @@ $("tradeForm").addEventListener("submit", (e) => {
     createdAt: editingId ? (data.trades.find(t => t.id === editingId)?.createdAt || Date.now()) : Date.now()
   };
   const normalized = normalizeTrade(trade);
-  if (trade.type === "sell") {
-    const result = validateSell(trade.symbol, trade.shares, editingId);
-    if (!result.ok) return alert(`賣出股數超過目前庫存。目前可賣出 ${num(result.available, 0)} 股。`);
-  } else {
+  const candidateTrades = editingId
+    ? data.trades.map(t => t.id === editingId ? trade : t)
+    : [...data.trades, trade];
+  const inventoryCheck = validateInventoryTimeline(candidateTrades);
+  if (!inventoryCheck.ok) return alert(inventoryErrorMessage(inventoryCheck));
+  if (trade.type === "buy") {
     const needed = normalized.price * normalized.shares + normalized.fee;
     const cashBefore = calculateCash({ excludeTradeId: editingId });
     if (needed > cashBefore && !confirm(`可用資金不足。\n\n本次買進需要：${money(needed)}\n目前可用資金：${money(cashBefore)}\n不足金額：${money(needed - cashBefore)}\n\n仍然允許儲存嗎？`)) return;
   }
-  if (editingId) data.trades = data.trades.map(t => t.id === editingId ? trade : t);
-  else data.trades.push(trade);
+  data.trades = candidateTrades;
   saveData();
   resetTradeForm();
   releaseFocusAndResetView();
@@ -345,7 +382,10 @@ window.editTrade = (id) => {
 };
 window.deleteTrade = (id) => {
   if (!confirm("確定要刪除這筆交易嗎？刪除後會重新計算持股、損益與可用資金。")) return;
-  data.trades = data.trades.filter(t => t.id !== id);
+  const candidateTrades = data.trades.filter(t => t.id !== id);
+  const inventoryCheck = validateInventoryTimeline(candidateTrades);
+  if (!inventoryCheck.ok) return alert(inventoryErrorMessage(inventoryCheck));
+  data.trades = candidateTrades;
   saveData(); render();
 };
 $("cancelEdit").addEventListener("click", resetTradeForm);
@@ -530,6 +570,8 @@ $("importJson").addEventListener("change", async (e) => {
   try {
     const imported = JSON.parse(await file.text());
     if (!Array.isArray(imported.trades) || typeof imported.prices !== "object") throw new Error("格式不符");
+    const importedInventoryCheck = validateInventoryTimeline(imported.trades);
+    if (!importedInventoryCheck.ok) throw new Error("備份交易紀錄存在負庫存");
     if (!confirm("匯入後會取代目前資料。確定要繼續嗎？")) return;
     data = {
       trades: imported.trades,

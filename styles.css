@@ -126,3 +126,4 @@ input, select, textarea { font-size: max(16px, calc(16px * var(--font-scale))); 
 .quick-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
 .sort-control { margin-bottom: 12px; }
 .stale-price { color: var(--warning); }
+\n\n/* v1.5：中立損益與更清楚的持股列表 */\n.pnl-neutral { color: var(--muted); }\n.compact-card { padding-top: 13px; padding-bottom: 13px; }\n.price-missing { color: var(--warning); font-weight: 700; }\n.estimate-label { color: var(--warning); font-size: calc(12px * var(--font-scale)); font-weight: 700; }\n.holding-clickable { padding-left: 6px; padding-right: 6px; }\n
