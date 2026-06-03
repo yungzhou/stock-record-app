@@ -23,7 +23,7 @@
 
   <main>
     <section id="dashboard" class="page active">
-      <div class="version-row"><span class="version-badge">版本 v1.5</span></div>
+      <div class="version-row"><span class="version-badge">版本 v1.6</span></div>
 
       <div class="summary-grid">
         <article class="card metric featured">
@@ -50,6 +50,28 @@
       </div>
 
 
+
+
+      <article class="card asset-chart-card">
+        <div class="section-head chart-title-row">
+          <div>
+            <h2>資產走勢</h2>
+            <p class="helper" id="assetChartSummary">尚未累積足夠資料。</p>
+          </div>
+        </div>
+        <div class="chart-range-row" id="chartRangeButtons">
+          <button class="chart-range active" data-range="30">1 個月</button>
+          <button class="chart-range" data-range="90">3 個月</button>
+          <button class="chart-range" data-range="180">6 個月</button>
+          <button class="chart-range" data-range="ytd">今年</button>
+          <button class="chart-range" data-range="all">全部</button>
+        </div>
+        <div class="asset-chart-wrap">
+          <svg id="assetChartSvg" viewBox="0 0 640 240" role="img" aria-label="總資產走勢圖"></svg>
+          <div id="assetChartEmpty" class="chart-empty hidden">資料累積後，這裡會顯示總資產走勢。</div>
+        </div>
+        <div class="chart-footnote">同一天只保留最後一筆資產快照。尚未更新現價的持股會暫以成本估算。</div>
+      </article>
 
       <article class="card compact-card">
         <div class="section-head">
@@ -109,19 +131,18 @@
       <div class="section-head">
         <div>
           <h2>目前持股</h2>
-          <p class="helper">點選股票可查看完整明細，也可手動更新目前股價。</p>
+          <p class="helper">點選整列可查看明細；點擊表頭可排序。</p>
         </div>
       </div>
-      <label class="sort-control">排序方式
-        <select id="holdingSort">
-          <option value="marketValue">依市值排序</option>
-          <option value="unrealized">依未實現損益排序</option>
-          <option value="returnRate">依報酬率排序</option>
-          <option value="symbol">依股票代號排序</option>
-          <option value="priceUpdatedAt">依股價更新時間排序</option>
-        </select>
-      </label>
-      <div id="holdingsList" class="empty">尚無持股。</div>
+      <div class="holdings-table-card">
+        <div class="holdings-table-head">
+          <button class="table-sort active" data-sort="symbol">股票</button>
+          <button class="table-sort" data-sort="shares">庫存 / 均價</button>
+          <button class="table-sort" data-sort="marketValue">市值 / 現價</button>
+          <button class="table-sort" data-sort="unrealized">損益 / %</button>
+        </div>
+        <div id="holdingsList" class="empty">尚無持股。</div>
+      </div>
     </section>
 
     <section id="holdingDetail" class="page">
@@ -321,7 +342,7 @@
       </article>
 
       <article class="card">
-        <h2>v1.5 說明</h2>
+        <h2>v1.6 說明</h2>
         <p class="helper">
           可用資金 = 手動資金異動 + 賣出淨收入 − 買進總成本。現金股利會加入可用資金。
           本工具不連接券商、不提供報價，也不是報稅或投資建議工具。請用券商對帳單核對結果。

@@ -1,11 +1,17 @@
 
-const APP_VERSION = "v1.5";
+const APP_VERSION = "v1.6";
 const STORAGE_KEY = "stockRecordAppV1";
 const DEFAULT_DATA = {
   trades: [],
   prices: {},
   priceUpdatedAt: {},
   cashEntries: [],
+  snapshots: [],
+  ui: {
+    holdingSort: "symbol",
+    holdingSortDir: "asc",
+    chartRange: "30"
+  },
   settings: {
     feeRate: 0.001425,
     minFee: 20,
@@ -31,6 +37,8 @@ function loadData() {
       prices: saved.prices && typeof saved.prices === "object" ? saved.prices : {},
       priceUpdatedAt: saved.priceUpdatedAt && typeof saved.priceUpdatedAt === "object" ? saved.priceUpdatedAt : {},
       cashEntries: Array.isArray(saved.cashEntries) ? saved.cashEntries : [],
+      snapshots: Array.isArray(saved.snapshots) ? saved.snapshots : [],
+      ui: { ...DEFAULT_DATA.ui, ...(saved.ui || {}) },
       settings: { ...DEFAULT_DATA.settings, ...(saved.settings || {}) }
     } : cloneDefault();
   } catch {
@@ -183,6 +191,96 @@ function pnlClass(n) {
   return Number(n) > 0 ? "pnl-positive" : "pnl-negative";
 }
 
+
+function localDateKey(date = new Date()) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+function calculateAssetSnapshot() {
+  const p = calculatePortfolio();
+  const c = calculateCashSummary();
+  const estimatedMarketValue = p.holdings.reduce((sum, h) => sum + Number(h.estimatedMarketValue || 0), 0);
+  const knownMarketValue = p.holdings.reduce((sum, h) => sum + Number(h.marketValue || 0), 0);
+  const updatedCount = p.holdings.filter(h => h.hasCurrentPrice).length;
+  return {
+    date: localDateKey(),
+    capturedAt: new Date().toISOString(),
+    availableCash: c.available,
+    marketValue: estimatedMarketValue,
+    knownMarketValue,
+    totalAssets: c.available + estimatedMarketValue,
+    updatedPriceCount: updatedCount,
+    holdingsCount: p.holdings.length,
+    isEstimated: updatedCount < p.holdings.length
+  };
+}
+function upsertTodaySnapshot() {
+  const snapshot = calculateAssetSnapshot();
+  const index = data.snapshots.findIndex(s => s.date === snapshot.date);
+  if (index >= 0) data.snapshots[index] = snapshot;
+  else data.snapshots.push(snapshot);
+  data.snapshots.sort((a, b) => a.date.localeCompare(b.date));
+  saveData();
+}
+function snapshotRangeStart(range) {
+  const now = new Date();
+  if (range === "all") return null;
+  if (range === "ytd") return `${now.getFullYear()}-01-01`;
+  const days = Number(range || 30);
+  const start = new Date(now);
+  start.setDate(start.getDate() - days + 1);
+  return localDateKey(start);
+}
+function filteredSnapshots() {
+  const range = data.ui.chartRange || "30";
+  const start = snapshotRangeStart(range);
+  return data.snapshots
+    .filter(s => !start || s.date >= start)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+function formatShortDate(dateStr) {
+  const parts = String(dateStr).split("-");
+  return parts.length === 3 ? `${Number(parts[1])}/${Number(parts[2])}` : dateStr;
+}
+function renderAssetChart() {
+  const svg = $("assetChartSvg");
+  const empty = $("assetChartEmpty");
+  const points = filteredSnapshots();
+  document.querySelectorAll(".chart-range").forEach(btn => btn.classList.toggle("active", btn.dataset.range === String(data.ui.chartRange || "30")));
+  if (!points.length) {
+    svg.innerHTML = "";
+    empty.classList.remove("hidden");
+    $("assetChartSummary").textContent = "尚未累積足夠資料。";
+    return;
+  }
+  empty.classList.add("hidden");
+  const width = 640, height = 240;
+  const pad = { left: 26, right: 26, top: 30, bottom: 34 };
+  const values = points.map(p => Number(p.totalAssets || 0));
+  let min = Math.min(...values), max = Math.max(...values);
+  if (min === max) { min -= Math.max(1, Math.abs(min) * 0.03); max += Math.max(1, Math.abs(max) * 0.03); }
+  const x = (i) => pad.left + (points.length === 1 ? (width - pad.left - pad.right) / 2 : i * (width - pad.left - pad.right) / (points.length - 1));
+  const y = (v) => pad.top + (max - v) * (height - pad.top - pad.bottom) / (max - min);
+  const coords = points.map((p, i) => [x(i), y(Number(p.totalAssets || 0))]);
+  const line = coords.map(([cx, cy], i) => `${i ? "L" : "M"} ${cx.toFixed(1)} ${cy.toFixed(1)}`).join(" ");
+  const area = `${line} L ${coords[coords.length - 1][0].toFixed(1)} ${(height - pad.bottom).toFixed(1)} L ${coords[0][0].toFixed(1)} ${(height - pad.bottom).toFixed(1)} Z`;
+  const first = values[0], last = values[values.length - 1], change = last - first;
+  const rate = first ? change / first * 100 : 0;
+  $("assetChartSummary").innerHTML = `目前 ${money(last)} · 區間變化 <strong class="${pnlClass(change)}">${change >= 0 ? "+" : ""}${money(change)} (${change >= 0 ? "+" : ""}${rate.toFixed(2)}%)</strong>`;
+  const horizontal = [0, .5, 1].map(r => {
+    const gy = pad.top + r * (height - pad.top - pad.bottom);
+    return `<line class="chart-grid" x1="${pad.left}" y1="${gy}" x2="${width-pad.right}" y2="${gy}"/>`;
+  }).join("");
+  const labels = [
+    `<text class="chart-label" x="${pad.left}" y="${height - 8}">${formatShortDate(points[0].date)}</text>`,
+    `<text class="chart-label" text-anchor="end" x="${width - pad.right}" y="${height - 8}">${formatShortDate(points[points.length-1].date)}</text>`
+  ].join("");
+  const dots = coords.map(([cx, cy], i) => `<circle class="chart-dot" cx="${cx}" cy="${cy}" r="${i === coords.length - 1 ? 6 : 4}"><title>${points[i].date} ${money(points[i].totalAssets)}${points[i].isEstimated ? "（估算）" : ""}</title></circle>`).join("");
+  svg.innerHTML = `${horizontal}<path class="chart-area" d="${area}"/><path class="chart-line" d="${line}"/>${dots}${labels}`;
+}
+
 function render() {
   document.body.classList.toggle("dark", !!data.settings.darkMode);
   document.documentElement.classList.toggle("dark", !!data.settings.darkMode);
@@ -192,6 +290,7 @@ function render() {
   renderHoldings();
   renderHistory();
   renderFunds();
+  renderAssetChart();
   syncSettings();
   updatePreview();
   toggleDividendFields();
@@ -231,30 +330,41 @@ function renderDashboard() {
 }
 function holdingHtml(h) {
   const priceText = h.hasCurrentPrice ? num(h.currentPrice) : '<span class="price-missing">尚未更新</span>';
-  const pnlText = h.hasCurrentPrice ? money(h.unrealized) : "—";
+  const pnlText = h.hasCurrentPrice ? `${h.unrealized > 0 ? "+" : ""}${money(h.unrealized)}` : "—";
   const marketText = h.hasCurrentPrice ? money(h.marketValue) : "—";
-  const rateText = h.hasCurrentPrice ? `${(h.returnRate * 100).toFixed(2)}%` : "—";
-  return `<div class="list-item holding-clickable" onclick="openHoldingDetail('${escapeHtml(h.symbol)}')">
-    <div class="item-top">
-      <div><span class="symbol">${escapeHtml(h.symbol)} ${escapeHtml(h.name)}</span>
-      <div class="meta">${num(h.shares, 0)} 股 · 平均成本 ${num(h.avgCost)} · 現價 ${priceText}</div></div>
-      <strong class="${pnlClass(h.unrealized)}">${pnlText}</strong>
+  const rateText = h.hasCurrentPrice ? `${h.returnRate > 0 ? "+" : ""}${(h.returnRate * 100).toFixed(2)}%` : "—";
+  return `<div class="holding-table-row" onclick="openHoldingDetail('${escapeHtml(h.symbol)}')">
+    <div class="stock-cell">
+      <div class="stock-name">${escapeHtml(h.name)}</div>
+      <div class="stock-code">${escapeHtml(h.symbol)}</div>
+      <button class="update-price-mini" onclick="event.stopPropagation(); openPriceDialog('${escapeHtml(h.symbol)}','${escapeHtml(h.name)}')">更新股價</button>
     </div>
-    <div class="meta">市值 ${marketText} · 報酬率 ${rateText}</div>
-    <div class="meta ${daysSince(h.priceUpdatedAt) !== null && daysSince(h.priceUpdatedAt) > 7 ? "stale-price" : ""}">股價更新：${formatDateTime(h.priceUpdatedAt)}</div>
-    <div class="item-actions">
-      <button onclick="event.stopPropagation(); openPriceDialog('${escapeHtml(h.symbol)}','${escapeHtml(h.name)}')">更新股價</button>
+    <div class="number-cell">
+      <div class="cell-main">${num(h.shares, 0)}</div>
+      <div class="cell-sub">${num(h.avgCost)}</div>
+    </div>
+    <div class="number-cell">
+      <div class="cell-main">${marketText}</div>
+      <div class="cell-sub">${priceText}</div>
+    </div>
+    <div class="number-cell">
+      <div class="cell-main ${pnlClass(h.unrealized)}">${pnlText}</div>
+      <div class="cell-sub ${pnlClass(h.returnRate)}">${rateText}</div>
     </div>
   </div>`;
 }
 function renderHoldings() {
-  const sortBy = $("holdingSort").value;
+  const sortBy = data.ui.holdingSort || "symbol";
+  const dir = data.ui.holdingSortDir === "desc" ? -1 : 1;
   const holdings = calculatePortfolio().holdings.sort((a, b) => {
-    if (sortBy === "symbol") return a.symbol.localeCompare(b.symbol, "zh-TW", { numeric: true });
-    if (sortBy === "priceUpdatedAt") return String(b.priceUpdatedAt || "").localeCompare(String(a.priceUpdatedAt || ""));
-    const bv = b[sortBy] === null ? -Infinity : Number(b[sortBy] || 0);
-    const av = a[sortBy] === null ? -Infinity : Number(a[sortBy] || 0);
-    return bv - av;
+    if (sortBy === "symbol") return a.symbol.localeCompare(b.symbol, "zh-TW", { numeric: true }) * dir;
+    const av = sortBy === "shares" ? a.shares : (a[sortBy] === null ? -Infinity : Number(a[sortBy] || 0));
+    const bv = sortBy === "shares" ? b.shares : (b[sortBy] === null ? -Infinity : Number(b[sortBy] || 0));
+    return (av - bv) * dir;
+  });
+  document.querySelectorAll(".table-sort").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.sort === sortBy);
+    btn.textContent = btn.textContent.replace(/[↑↓]$/, "").trim() + (btn.dataset.sort === sortBy ? (dir === 1 ? " ↑" : " ↓") : "");
   });
   $("holdingsList").innerHTML = holdings.length ? holdings.map(holdingHtml).join("") : "尚無持股。";
 }
@@ -356,6 +466,7 @@ $("tradeForm").addEventListener("submit", (e) => {
   }
   data.trades = candidateTrades;
   saveData();
+  upsertTodaySnapshot();
   resetTradeForm();
   releaseFocusAndResetView();
   render();
@@ -386,7 +497,7 @@ window.deleteTrade = (id) => {
   const inventoryCheck = validateInventoryTimeline(candidateTrades);
   if (!inventoryCheck.ok) return alert(inventoryErrorMessage(inventoryCheck));
   data.trades = candidateTrades;
-  saveData(); render();
+  saveData(); upsertTodaySnapshot(); render();
 };
 $("cancelEdit").addEventListener("click", resetTradeForm);
 $("search").addEventListener("input", renderHistory);
@@ -462,6 +573,7 @@ $("cashForm").addEventListener("submit", (e) => {
   if (editingId) data.cashEntries = data.cashEntries.map(x => x.id === editingId ? entry : x);
   else data.cashEntries.push(entry);
   saveData();
+  upsertTodaySnapshot();
   resetCashForm();
   releaseFocusAndResetView();
   render();
@@ -486,7 +598,7 @@ window.editCashEntry = (id) => {
 window.deleteCashEntry = (id) => {
   if (!confirm("確定要刪除這筆資金異動嗎？刪除後會重新計算可用資金。")) return;
   data.cashEntries = data.cashEntries.filter(x => x.id !== id);
-  saveData(); render();
+  saveData(); upsertTodaySnapshot(); render();
 };
 $("cancelCashEdit").addEventListener("click", resetCashForm);
 
@@ -502,7 +614,7 @@ $("priceForm").addEventListener("submit", (e) => {
   const symbol = $("priceSymbol").value;
   data.prices[symbol] = Number($("currentPrice").value);
   data.priceUpdatedAt[symbol] = new Date().toISOString();
-  saveData(); $("priceDialog").close(); releaseFocusAndResetView(); render();
+  saveData(); upsertTodaySnapshot(); $("priceDialog").close(); releaseFocusAndResetView(); render();
 });
 $("backToHoldings").addEventListener("click", () => navTo("holdings"));
 $("themeToggle").addEventListener("click", () => { data.settings.darkMode = !data.settings.darkMode; saveData(); render(); });
@@ -517,13 +629,29 @@ function syncSettings() {
   $("lastBackupText").textContent = `上次備份：${formatDateTime(data.settings.lastBackupAt)}`;
 }
 
+
+document.querySelectorAll(".table-sort").forEach(btn => btn.addEventListener("click", () => {
+  const nextSort = btn.dataset.sort;
+  if (data.ui.holdingSort === nextSort) data.ui.holdingSortDir = data.ui.holdingSortDir === "asc" ? "desc" : "asc";
+  else {
+    data.ui.holdingSort = nextSort;
+    data.ui.holdingSortDir = nextSort === "symbol" ? "asc" : "desc";
+  }
+  saveData();
+  renderHoldings();
+}));
+document.querySelectorAll(".chart-range").forEach(btn => btn.addEventListener("click", () => {
+  data.ui.chartRange = btn.dataset.range;
+  saveData();
+  renderAssetChart();
+}));
+
 $("displaySettingsForm").addEventListener("submit", (e) => {
   e.preventDefault();
   data.settings.fontSize = $("fontSize").value;
   data.settings.backupReminderDays = Number($("backupReminderDays").value);
   saveData(); releaseFocusAndResetView(); render(); alert("顯示設定已儲存。");
 });
-$("holdingSort").addEventListener("change", renderHoldings);
 
 function renderBackupReminder() {
   const days = Number(data.settings.backupReminderDays || 0);
@@ -578,9 +706,11 @@ $("importJson").addEventListener("change", async (e) => {
       prices: imported.prices || {},
       priceUpdatedAt: imported.priceUpdatedAt && typeof imported.priceUpdatedAt === "object" ? imported.priceUpdatedAt : {},
       cashEntries: Array.isArray(imported.cashEntries) ? imported.cashEntries : [],
+      snapshots: Array.isArray(imported.snapshots) ? imported.snapshots : [],
+      ui: { ...DEFAULT_DATA.ui, ...(imported.ui || {}) },
       settings: { ...DEFAULT_DATA.settings, ...(imported.settings || {}) }
     };
-    saveData(); releaseFocusAndResetView(); render(); alert("匯入完成。");
+    saveData(); upsertTodaySnapshot(); releaseFocusAndResetView(); render(); alert("匯入完成。");
   } catch { alert("無法匯入：檔案格式不正確。"); }
   e.target.value = "";
 });
@@ -599,10 +729,11 @@ $("exportCsv").addEventListener("click", () => {
 $("clearData").addEventListener("click", () => {
   if (!confirm("確定要清除全部資料嗎？此動作無法復原，建議先匯出備份。")) return;
   if (!confirm("再次確認：真的要刪除全部交易與資金紀錄嗎？")) return;
-  data = cloneDefault(); saveData(); resetTradeForm(); resetCashForm(); releaseFocusAndResetView(); render();
+  data = cloneDefault(); saveData(); upsertTodaySnapshot(); resetTradeForm(); resetCashForm(); releaseFocusAndResetView(); render();
 });
 resetTradeForm();
 resetCashForm();
+upsertTodaySnapshot();
 render();
 
 if ("serviceWorker" in navigator) {
