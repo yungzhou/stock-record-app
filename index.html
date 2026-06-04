@@ -16,23 +16,23 @@
   <header class="topbar">
     <div>
       <h1>我的股票紀錄</h1>
-      <p class="subtitle">個人買賣紀錄與資金管理</p>
+      <p class="subtitle">台股、美股與多幣別資產管理</p>
     </div>
     <button class="icon-button" id="themeToggle" aria-label="切換深色模式">☾</button>
   </header>
 
   <main>
     <section id="dashboard" class="page active">
-      <div class="version-row"><span class="version-badge">版本 v1.7</span></div>
+      <div class="version-row"><span class="version-badge">版本 v1.8</span></div>
 
       <article class="card asset-chart-card">
-        <div class="section-head chart-title-row">
+        <div class="section-head">
           <div>
             <h2>資產走勢</h2>
             <p class="helper" id="assetChartSummary">正在整理歷史資產資料。</p>
           </div>
         </div>
-        <div class="chart-range-row" id="chartRangeButtons">
+        <div class="chart-range-row">
           <button class="chart-range" data-range="30">1 個月</button>
           <button class="chart-range" data-range="90">3 個月</button>
           <button class="chart-range" data-range="180">6 個月</button>
@@ -43,49 +43,55 @@
           <button class="chart-range active" data-range="all">全部</button>
         </div>
         <div class="asset-chart-wrap">
-          <svg id="assetChartSvg" viewBox="0 0 720 280" role="img" aria-label="總資產走勢圖"></svg>
+          <svg id="assetChartSvg" viewBox="0 0 720 280" role="img" aria-label="折合台幣總資產走勢圖"></svg>
           <div id="assetChartEmpty" class="chart-empty hidden">新增資金或交易紀錄後，這裡會顯示資產走勢。</div>
         </div>
         <div id="assetChartDetail" class="chart-detail">點擊圖表資料點，可查看當日明細。</div>
         <div class="chart-footnote">
-          歷史資金異動會從最早紀錄回推。缺少當日股價的歷史持股市值，會以當時持股成本估算並清楚標示；不會用今天股價冒充過去市值。
+          圖表以折合台幣總資產顯示。歷史美元資產使用當時已記錄匯率；缺少匯率或歷史股價時會標示為估算，不會用今日資料假裝成過去資料。
         </div>
       </article>
 
+      <article class="card fx-banner">
+        <div>
+          <span class="eyebrow">美元匯率</span>
+          <strong id="homeFxRate">1 USD = NT$—</strong>
+          <p class="helper" id="homeFxUpdated">尚未設定匯率</p>
+        </div>
+        <button class="small" data-nav="funds">更新匯率</button>
+      </article>
 
       <div class="summary-grid">
-        <article class="card metric featured">
-          <span>可用資金</span><strong id="availableCash">NT$0</strong>
-        </article>
-        <article class="card metric featured">
-          <span>總資產</span><strong id="totalAssets">NT$0</strong>
+        <article class="card metric featured wide-metric">
+          <span>折合台幣總資產</span><strong id="totalAssetsTWD">NT$0</strong>
         </article>
         <article class="card metric">
-          <span>持股成本</span><strong id="totalCost">NT$0</strong>
+          <span>台幣可用資金</span><strong id="availableTWD">NT$0</strong>
         </article>
         <article class="card metric">
-          <span>目前市值</span><strong id="marketValue">NT$0</strong>
+          <span>美元可用資金</span><strong id="availableUSD">US$0</strong>
+          <small id="availableUSDConverted">折合 NT$0</small>
         </article>
         <article class="card metric">
-          <span>未實現損益</span><strong id="unrealizedPnl">NT$0</strong>
+          <span>台股市值</span><strong id="marketTWD">NT$0</strong>
         </article>
         <article class="card metric">
-          <span>已實現損益</span><strong id="realizedPnl">NT$0</strong>
+          <span>美股市值</span><strong id="marketUSD">US$0</strong>
+          <small id="marketUSDConverted">折合 NT$0</small>
         </article>
         <article class="card metric">
-          <span>累積現金股利</span><strong id="dividendIncome">NT$0</strong>
+          <span>台幣現金股利</span><strong id="dividendTWD">NT$0</strong>
+        </article>
+        <article class="card metric">
+          <span>美元現金股利</span><strong id="dividendUSD">US$0</strong>
         </article>
       </div>
-
-
-
-
 
       <article class="card compact-card">
         <div class="section-head">
           <div>
-            <h2>股價完整度</h2>
-            <p class="helper" id="priceCompletenessText">尚無持股。</p>
+            <h2>股價與匯率完整度</h2>
+            <p class="helper" id="completenessText">尚無持股。</p>
           </div>
           <button class="small" data-nav="holdings">前往更新</button>
         </div>
@@ -108,30 +114,12 @@
         </div>
       </article>
 
-      <article class="card" id="cashWarningCard">
-        <div class="section-head">
-          <div>
-            <h2>資金帳戶</h2>
-            <p class="helper" id="cashHint">尚未存入資金。請先到「資金」頁新增一筆存入紀錄。</p>
-          </div>
-          <button class="small" data-nav="funds">管理資金</button>
-        </div>
-      </article>
-
       <article class="card">
         <div class="section-head">
           <h2>持股總覽</h2>
           <button class="small" data-nav="holdings">查看全部</button>
         </div>
-        <div id="dashboardHoldings" class="empty">尚無持股。請先新增一筆買進紀錄。</div>
-      </article>
-
-      <article class="card">
-        <div class="section-head">
-          <h2>最近交易</h2>
-          <button class="small" data-nav="history">查看全部</button>
-        </div>
-        <div id="recentTrades" class="empty">尚無交易紀錄。</div>
+        <div id="dashboardHoldings" class="empty">尚無持股。</div>
       </article>
     </section>
 
@@ -142,12 +130,17 @@
           <p class="helper">點選整列可查看明細；點擊表頭可排序。</p>
         </div>
       </div>
+      <div class="segmented" id="marketFilter">
+        <button class="segment active" data-market="all">全部</button>
+        <button class="segment" data-market="TW">台股</button>
+        <button class="segment" data-market="US">美股</button>
+      </div>
       <div class="holdings-table-card">
         <div class="holdings-table-head">
           <button class="table-sort active" data-sort="symbol">股票</button>
           <button class="table-sort" data-sort="shares">庫存 / 均價</button>
-          <button class="table-sort" data-sort="marketValue">市值 / 現價</button>
-          <button class="table-sort" data-sort="unrealized">損益 / %</button>
+          <button class="table-sort" data-sort="marketValueNative">市值 / 現價</button>
+          <button class="table-sort" data-sort="unrealizedNative">損益 / %</button>
         </div>
         <div id="holdingsList" class="empty">尚無持股。</div>
       </div>
@@ -166,6 +159,12 @@
         <form id="tradeForm">
           <input type="hidden" id="editId" />
           <div class="form-grid">
+            <label>市場
+              <select id="market" required>
+                <option value="TW">台股</option>
+                <option value="US">美股</option>
+              </select>
+            </label>
             <label>交易類型
               <select id="type" required>
                 <option value="buy">買進</option>
@@ -178,29 +177,32 @@
                 <option value="etf">ETF</option>
               </select>
             </label>
+            <label>幣別
+              <input id="tradeCurrency" readonly />
+            </label>
             <label>股票代號
-              <input id="symbol" inputmode="numeric" placeholder="例如：2330" required />
+              <input id="symbol" placeholder="例如：2330 或 AAPL" required />
             </label>
             <label>股票名稱
-              <input id="name" placeholder="例如：台積電" required />
+              <input id="name" placeholder="例如：台積電或 Apple" required />
             </label>
             <label>交易日期
               <input id="date" type="date" required />
             </label>
             <label>成交價格
-              <input id="price" type="number" min="0" step="0.01" inputmode="decimal" placeholder="每股價格" required />
+              <input id="price" type="number" min="0" step="0.0001" inputmode="decimal" required />
             </label>
             <label>股數
-              <input id="shares" type="number" min="1" step="1" inputmode="numeric" placeholder="例如：1000" required />
+              <input id="shares" type="number" min="0.000001" step="0.000001" inputmode="decimal" required />
             </label>
             <label>手續費
-              <input id="fee" type="number" min="0" step="1" inputmode="numeric" placeholder="留白則自動估算" />
+              <input id="fee" type="number" min="0" step="0.0001" inputmode="decimal" placeholder="美股建議手動輸入" />
             </label>
             <label id="taxField">證交稅
-              <input id="tax" type="number" min="0" step="1" inputmode="numeric" placeholder="賣出時留白則自動估算" />
+              <input id="tax" type="number" min="0" step="0.0001" inputmode="decimal" placeholder="台股賣出留白則估算" />
             </label>
             <label class="wide">備註
-              <textarea id="note" rows="3" placeholder="例如：分批布局第一筆"></textarea>
+              <textarea id="note" rows="3"></textarea>
             </label>
           </div>
           <div class="calc-preview" id="tradePreview"></div>
@@ -217,10 +219,10 @@
         <div class="section-head"><h2>交易紀錄</h2></div>
         <div class="filters">
           <input id="search" placeholder="搜尋股票代號或名稱" />
-          <select id="historyType">
-            <option value="all">全部類型</option>
-            <option value="buy">只看買進</option>
-            <option value="sell">只看賣出</option>
+          <select id="historyMarket">
+            <option value="all">全部市場</option>
+            <option value="TW">台股</option>
+            <option value="US">美股</option>
           </select>
         </div>
         <div id="historyList" class="empty">尚無交易紀錄。</div>
@@ -228,28 +230,27 @@
     </section>
 
     <section id="funds" class="page">
-      <div class="summary-grid">
-        <article class="card metric featured">
-          <span>可用資金</span><strong id="fundsAvailableCash">NT$0</strong>
-        </article>
-        <article class="card metric">
-          <span>累積存入</span><strong id="totalDeposits">NT$0</strong>
-        </article>
-        <article class="card metric">
-          <span>累積提領</span><strong id="totalWithdrawals">NT$0</strong>
-        </article>
-        <article class="card metric">
-          <span>累積現金股利</span><strong id="fundsDividendIncome">NT$0</strong>
-        </article>
-      </div>
+      <article class="card">
+        <h2>資金帳戶</h2>
+        <div class="summary-grid">
+          <div class="mini-summary"><span>台幣可用</span><strong id="fundsTWD">NT$0</strong></div>
+          <div class="mini-summary"><span>美元可用</span><strong id="fundsUSD">US$0</strong></div>
+        </div>
+      </article>
 
       <article class="card">
         <h2 id="cashFormTitle">新增資金異動</h2>
         <form id="cashForm">
           <input type="hidden" id="cashEditId" />
           <div class="form-grid">
-            <label>異動類型
-              <select id="cashType" required>
+            <label>幣別
+              <select id="cashCurrency">
+                <option value="TWD">台幣 TWD</option>
+                <option value="USD">美元 USD</option>
+              </select>
+            </label>
+            <label>類型
+              <select id="cashType">
                 <option value="deposit">資金存入</option>
                 <option value="withdrawal">資金提領</option>
                 <option value="dividend">現金股利</option>
@@ -261,16 +262,16 @@
               <input id="cashDate" type="date" required />
             </label>
             <label>金額
-              <input id="cashAmount" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="例如：300000" required />
+              <input id="cashAmount" type="number" min="0.0001" step="0.0001" inputmode="decimal" required />
             </label>
             <label class="dividend-only hidden">股票代號
-              <input id="cashSymbol" inputmode="numeric" placeholder="例如：2303" />
+              <input id="cashSymbol" placeholder="例如：2303 或 AAPL" />
             </label>
             <label class="dividend-only hidden">股票名稱
-              <input id="cashName" placeholder="例如：聯電" />
+              <input id="cashName" />
             </label>
             <label class="wide">備註
-              <textarea id="cashNote" rows="3" placeholder="例如：初始投入資金"></textarea>
+              <textarea id="cashNote" rows="2"></textarea>
             </label>
           </div>
           <div class="button-row">
@@ -281,18 +282,60 @@
       </article>
 
       <article class="card">
-        <div class="section-head">
-          <div>
-            <h2>資金異動紀錄</h2>
-            <p class="helper">股票買進、賣出會自動列入，不需要重複輸入。</p>
-          </div>
-        </div>
+        <h2>美元匯率</h2>
+        <p class="helper">手動輸入 1 美元可以兌換多少台幣。每次儲存都會保留匯率快照。</p>
+        <form id="fxForm" class="form-grid">
+          <label>日期
+            <input id="fxDate" type="date" required />
+          </label>
+          <label>1 USD = NT$
+            <input id="fxRate" type="number" min="0.0001" step="0.0001" inputmode="decimal" placeholder="例如：32.50" required />
+          </label>
+          <label class="wide">備註
+            <input id="fxNote" placeholder="例如：依銀行換匯匯率" />
+          </label>
+          <div class="wide"><button type="submit" class="primary">儲存匯率</button></div>
+        </form>
+        <div id="fxList" class="empty">尚未設定匯率。</div>
+      </article>
+
+      <article class="card">
+        <h2>換匯紀錄</h2>
+        <p class="helper">輸入實際支出與取得金額。系統會同時更新台幣、美元資金，並保存實際匯率快照。</p>
+        <form id="exchangeForm" class="form-grid">
+          <label>日期
+            <input id="exchangeDate" type="date" required />
+          </label>
+          <label>方向
+            <select id="exchangeDirection">
+              <option value="TWD_TO_USD">台幣換美元</option>
+              <option value="USD_TO_TWD">美元換台幣</option>
+            </select>
+          </label>
+          <label>支出金額
+            <input id="exchangeFromAmount" type="number" min="0.0001" step="0.0001" inputmode="decimal" required />
+          </label>
+          <label>取得金額
+            <input id="exchangeToAmount" type="number" min="0.0001" step="0.0001" inputmode="decimal" required />
+          </label>
+          <label>支出幣別手續費
+            <input id="exchangeFee" type="number" min="0" step="0.0001" inputmode="decimal" value="0" />
+          </label>
+          <label>備註
+            <input id="exchangeNote" placeholder="例如：銀行換匯" />
+          </label>
+          <div class="wide"><button type="submit" class="primary">儲存換匯</button></div>
+        </form>
+      </article>
+
+      <article class="card">
+        <h2>資金異動紀錄</h2>
+        <p class="helper">股票買賣會自動列入，不需要重複輸入。</p>
         <div id="cashLedgerList" class="empty">尚無資金異動。</div>
       </article>
     </section>
 
     <section id="settings" class="page">
-
       <article class="card">
         <h2>顯示設定</h2>
         <form id="displaySettingsForm" class="form-grid">
@@ -316,10 +359,9 @@
       </article>
 
       <article class="card">
-        <h2>計算設定</h2>
-        <p class="helper">券商費率與折扣可能不同，請依自己的券商帳單調整。</p>
+        <h2>台股費率設定</h2>
         <form id="settingsForm" class="form-grid">
-          <label>手續費率
+          <label>台股手續費率
             <input id="feeRate" type="number" min="0" step="0.000001" />
           </label>
           <label>最低手續費
@@ -331,13 +373,13 @@
           <label>ETF 賣出證交稅率
             <input id="etfTaxRate" type="number" min="0" step="0.0001" />
           </label>
-          <div class="wide"><button type="submit" class="primary">儲存設定</button></div>
+          <div class="wide"><button type="submit" class="primary">儲存台股費率</button></div>
         </form>
+        <p class="helper">美股費用因券商不同，請在每筆交易手動輸入實際手續費。</p>
       </article>
 
       <article class="card">
         <h2>資料備份</h2>
-        <p class="helper">資料保存在這台裝置的瀏覽器內。建議定期備份到 iCloud Drive 或 Google Drive。</p>
         <p class="helper" id="lastBackupText">上次備份：尚未備份</p>
         <div class="button-stack">
           <button id="exportJson">匯出 JSON 備份</button>
@@ -350,11 +392,8 @@
       </article>
 
       <article class="card">
-        <h2>v1.7 說明</h2>
-        <p class="helper">
-          可用資金 = 手動資金異動 + 賣出淨收入 − 買進總成本。現金股利會加入可用資金。
-          本工具不連接券商、不提供報價，也不是報稅或投資建議工具。請用券商對帳單核對結果。
-        </p>
+        <h2>v1.8 說明</h2>
+        <p class="helper">台幣與美元分開計算。首頁總資產以台幣顯示；美元資產依匯率換算。歷史圖表使用當時已記錄匯率快照。</p>
       </article>
     </section>
   </main>
@@ -371,9 +410,9 @@
   <dialog id="priceDialog">
     <form method="dialog" id="priceForm">
       <h3 id="priceDialogTitle">更新目前股價</h3>
-      <input type="hidden" id="priceSymbol" />
+      <input type="hidden" id="priceKey" />
       <label>目前股價
-        <input id="currentPrice" type="number" min="0" step="0.01" inputmode="decimal" required />
+        <input id="currentPrice" type="number" min="0" step="0.0001" inputmode="decimal" required />
       </label>
       <div class="button-row">
         <button class="primary" value="save">儲存</button>
