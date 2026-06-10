@@ -1,8 +1,8 @@
 
-const APP_VERSION = "v1.8";
+const APP_VERSION = "v2.0";
 const STORAGE_KEY = "stockRecordAppV1";
 const DEFAULT_DATA = {
-  trades: [], cashEntries: [], fxRates: [], prices: {}, snapshots: [],
+  trades: [], cashEntries: [], fxRates: [], exchanges: [], prices: {}, snapshots: [],
   ui: { holdingSort: "symbol", holdingSortDir: "asc", marketFilter: "all", chartRange: "all" },
   settings: { feeRate: 0.001425, minFee: 20, stockTaxRate: 0.003, etfTaxRate: 0.001, darkMode: false, fontSize: "medium", backupReminderDays: 14, lastBackupAt: "" }
 };
@@ -17,6 +17,122 @@ const keyOf = (market,symbol) => `${market}:${String(symbol||"").trim().toUpperC
 const currencyOfMarket = market => market==="US" ? "USD" : "TWD";
 const pnlClass = n => n===null||n===undefined||Number(n)===0 ? "pnl-neutral" : Number(n)>0 ? "pnl-positive" : "pnl-negative";
 const formatDateTime = iso => !iso ? "尚未更新" : new Date(iso).toLocaleString("zh-TW",{year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"});
+
+const SYMBOL_CACHE_KEY = "stockRecordSymbolDbV20";
+const BUILTIN_SYMBOL_VERSION = "2026-06-10";
+let symbolDb = {TW:[],US:[]};
+let symbolMeta = {loadedAt:"",source:"內建離線名單"};
+
+function mergeSymbolLists(...lists){
+  const map=new Map();
+  lists.flat().filter(Boolean).forEach(item=>{
+    if(!item?.symbol||!item?.name)return;
+    const normalized={symbol:String(item.symbol).trim().toUpperCase(),name:String(item.name).trim(),market:item.market==="US"?"US":"TW",exchange:item.exchange||"",type:item.type==="etf"?"etf":"stock"};
+    map.set(`${normalized.market}:${normalized.symbol}`,normalized);
+  });
+  return [...map.values()];
+}
+function readSymbolCache(){
+  try{return JSON.parse(localStorage.getItem(SYMBOL_CACHE_KEY)||"null");}catch{return null;}
+}
+function saveSymbolCache(){
+  localStorage.setItem(SYMBOL_CACHE_KEY,JSON.stringify({updatedAt:new Date().toISOString(),TW:symbolDb.TW,US:symbolDb.US}));
+}
+async function loadSymbolDb(){
+  try{
+    const [tw,us]=await Promise.all([
+      fetch("./symbols-tw.json").then(r=>{if(!r.ok)throw new Error("TW symbols");return r.json();}),
+      fetch("./symbols-us.json").then(r=>{if(!r.ok)throw new Error("US symbols");return r.json();})
+    ]);
+    const cache=readSymbolCache();
+    symbolDb.TW=mergeSymbolLists(tw,cache?.TW||[]).filter(x=>x.market==="TW");
+    symbolDb.US=mergeSymbolLists(us,cache?.US||[]).filter(x=>x.market==="US");
+    symbolMeta={loadedAt:cache?.updatedAt||BUILTIN_SYMBOL_VERSION,source:cache?"內建名單＋已保存更新":"內建離線名單"};
+  }catch{
+    const cache=readSymbolCache();
+    symbolDb={TW:cache?.TW||[],US:cache?.US||[]};
+    symbolMeta={loadedAt:cache?.updatedAt||"",source:cache?"已保存名單":"載入失敗，可手動輸入"};
+  }
+  renderSymbolListStatus();
+}
+function renderSymbolListStatus(){
+  const el=$("symbolListStatus");if(!el)return;
+  el.textContent=`${symbolMeta.source} · 台股 ${symbolDb.TW.length.toLocaleString("zh-TW")} 筆 · 美股 ${symbolDb.US.length.toLocaleString("zh-TW")} 筆${symbolMeta.loadedAt?` · 更新：${String(symbolMeta.loadedAt).slice(0,10)}`:""}`;
+}
+function findSymbolMatches(query,market=$("market")?.value||"TW"){
+  const q=String(query||"").trim().toUpperCase();
+  if(!q)return [];
+  const list=symbolDb[market]||[];
+  return list.map(item=>{
+    const symbol=item.symbol.toUpperCase(),name=item.name.toUpperCase();
+    let score=99;
+    if(symbol===q)score=0;
+    else if(symbol.startsWith(q))score=1;
+    else if(name===q)score=2;
+    else if(name.includes(q))score=3;
+    else if(symbol.includes(q))score=4;
+    return {item,score};
+  }).filter(x=>x.score<99).sort((a,b)=>a.score-b.score||a.item.symbol.localeCompare(b.item.symbol,undefined,{numeric:true})).slice(0,8).map(x=>x.item);
+}
+function symbolLabel(item){return `${item.exchange||item.market} · ${item.type==="etf"?"ETF":"股票"}`;}
+function selectSymbol(market,symbol){
+  const item=(symbolDb[market]||[]).find(x=>x.symbol===symbol);if(!item)return;
+  $("market").value=item.market;$("symbol").value=item.symbol;$("name").value=item.name;$("assetType").value=item.type;$("symbolSearch").value=`${item.symbol} ${item.name}`;
+  $("symbolSuggestions").classList.add("hidden");updateTradeUI();
+}
+window.selectSymbol=selectSymbol;
+function renderSymbolSuggestions(query){
+  const box=$("symbolSuggestions");if(!box)return;
+  const list=findSymbolMatches(query);
+  if(!query.trim()){box.classList.add("hidden");box.innerHTML="";return;}
+  if(!list.length){box.innerHTML='<div class="empty" style="padding:11px 12px">找不到符合項目，仍可手動輸入代號與名稱。</div>';box.classList.remove("hidden");return;}
+  box.innerHTML=list.map(item=>`<button type="button" class="symbol-suggestion" onclick="selectSymbol('${item.market}','${escapeHtml(item.symbol)}')"><span class="symbol-suggestion-main"><span class="symbol-suggestion-symbol">${escapeHtml(item.symbol)}</span><div class="symbol-suggestion-name">${escapeHtml(item.name)}</div></span><span class="symbol-suggestion-meta">${escapeHtml(symbolLabel(item))}</span></button>`).join("");
+  box.classList.remove("hidden");
+}
+function autoFillExactSymbol(value){
+  const symbol=String(value||"").trim().toUpperCase();
+  if(!symbol)return;
+  const item=(symbolDb[$("market").value]||[]).find(x=>x.symbol===symbol);
+  if(item){$("symbol").value=item.symbol;$("name").value=item.name;$("assetType").value=item.type;}
+}
+async function refreshOfficialSymbols(){
+  const button=$("refreshSymbols");button.disabled=true;button.textContent="更新中…";
+  let twAdded=0,usAdded=0,notes=[];
+  try{
+    const rows=await fetch("https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_AVG_ALL").then(r=>{if(!r.ok)throw new Error("TWSE");return r.json();});
+    const official=rows.map(row=>({symbol:String(row.Code||row.code||"").trim(),name:String(row.Name||row.name||"").trim(),market:"TW",exchange:"TWSE",type:/^00/.test(String(row.Code||""))?"etf":"stock"})).filter(x=>x.symbol&&x.name);
+    twAdded=official.length;symbolDb.TW=mergeSymbolLists(symbolDb.TW,official).filter(x=>x.market==="TW");
+  }catch{notes.push("上市台股官方更新失敗，保留原名單");}
+  try{
+    const response=await fetch("https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_wn1430_result.php?l=zh-tw&o=data&se=EW");
+    if(!response.ok)throw new Error("TPEx");
+    const buffer=await response.arrayBuffer();
+    let text;
+    try{text=new TextDecoder("big5").decode(buffer);}catch{text=new TextDecoder("utf-8").decode(buffer);}
+    const parseCsvLine=line=>{
+      const cells=[];let current="",quoted=false;
+      for(let i=0;i<line.length;i++){const ch=line[i];if(ch==='"'&&line[i+1]==='"'){current+='"';i++;}else if(ch==='"')quoted=!quoted;else if(ch===","&&!quoted){cells.push(current.trim());current="";}else current+=ch;}
+      cells.push(current.trim());return cells;
+    };
+    const otc=text.split(/\r?\n/).map(parseCsvLine).map(cols=>({symbol:String(cols[0]||"").replace(/["=]/g,"").trim(),name:String(cols[1]||"").replace(/^"|"$/g,"").trim(),market:"TW",exchange:"TPEx",type:/^00/.test(String(cols[0]||""))?"etf":"stock"})).filter(x=>/^\d{4,6}[A-Z]?$/.test(x.symbol)&&x.name);
+    twAdded+=otc.length;symbolDb.TW=mergeSymbolLists(symbolDb.TW,otc).filter(x=>x.market==="TW");
+  }catch{notes.push("上櫃官方更新失敗，保留內建上櫃備援名單");}
+  try{
+    const [nasdaq,other]=await Promise.all([
+      fetch("https://www.nasdaqtrader.com/dynamic/symdir/nasdaqlisted.txt").then(r=>{if(!r.ok)throw new Error("NASDAQ");return r.text();}),
+      fetch("https://www.nasdaqtrader.com/dynamic/symdir/otherlisted.txt").then(r=>{if(!r.ok)throw new Error("OTHER");return r.text();})
+    ]);
+    const parsePipe=(text,isNasdaq)=>text.split(/\r?\n/).slice(1).map(line=>line.split("|")).filter(cols=>cols.length>5&&!String(cols[0]).startsWith("File Creation Time")).map(cols=>({symbol:String(cols[0]||"").trim(),name:String(cols[1]||"").trim(),market:"US",exchange:isNasdaq?"NASDAQ":String(cols[2]||"US"),type:String(isNasdaq?cols[6]:cols[4]).trim()==="Y"?"etf":"stock"})).filter(x=>x.symbol&&x.name);
+    const official=mergeSymbolLists(parsePipe(nasdaq,true),parsePipe(other,false));usAdded=official.length;symbolDb.US=official.filter(x=>x.market==="US");
+  }catch{notes.push("美股線上更新失敗，保留內建 Nasdaq 名單");}
+  symbolMeta={loadedAt:new Date().toISOString(),source:"已嘗試官方更新"};saveSymbolCache();renderSymbolListStatus();button.disabled=false;button.textContent="更新股票名單";
+  alert(`股票名單更新完成。\n台股官方資料：${twAdded.toLocaleString("zh-TW")} 筆\n美股官方資料：${usAdded.toLocaleString("zh-TW")} 筆${notes.length?`\n\n${notes.join("\n")}`:""}`);
+}
+function officialNameMismatch(t){
+  const item=(symbolDb[t.market]||[]).find(x=>x.symbol===t.symbol);
+  return item&&item.name!==t.name ? item : null;
+}
+
 const daysSince = iso => !iso ? null : Math.floor((Date.now()-new Date(iso).getTime())/86400000);
 function renderBackupReminder(){
   const card=$("backupReminderCard"),days=Number(data.settings.backupReminderDays||0),elapsed=daysSince(data.settings.lastBackupAt);
@@ -26,11 +142,38 @@ function renderBackupReminder(){
 }
 
 function cloneDefault(){return JSON.parse(JSON.stringify(DEFAULT_DATA));}
+function deriveLegacyExchanges(saved){
+  const entries=Array.isArray(saved?.cashEntries)?saved.cashEntries:[];
+  const rates=Array.isArray(saved?.fxRates)?saved.fxRates:[];
+  const groups=[...new Set(entries.map(e=>e.exchangeGroupId).filter(Boolean))];
+  return groups.map(group=>{
+    const linked=entries.filter(e=>e.exchangeGroupId===group);
+    const expense=linked.find(e=>e.type==="otherExpense");
+    const income=linked.find(e=>e.type==="otherIncome");
+    if(!expense||!income)return null;
+    const direction=expense.currency==="TWD"&&income.currency==="USD"?"TWD_TO_USD":"USD_TO_TWD";
+    const rateRow=rates.find(x=>x.exchangeGroupId===group);
+    const fromAmount=Number(expense.amount||0);
+    const toAmount=Number(income.amount||0);
+    const quotedRate=direction==="TWD_TO_USD"?(toAmount?fromAmount/toAmount:0):(fromAmount?toAmount/fromAmount:0);
+    return {
+      id:group,date:expense.date||income.date,direction,
+      fromCurrency:expense.currency,toCurrency:income.currency,
+      fromAmount,toAmount,fee:0,feeCurrency:expense.currency,
+      quotedRate:Number(rateRow?.rate||quotedRate),
+      effectiveRate:Number(rateRow?.rate||quotedRate),
+      note:"由 v1.8 換匯紀錄升級（舊版未分離手續費）",
+      createdAt:Number(expense.createdAt||income.createdAt||Date.now()),
+      migratedFromV18:true
+    };
+  }).filter(Boolean);
+}
 function migrate(saved){
   const result = {
     trades: Array.isArray(saved?.trades) ? saved.trades.map(t=>({...t,market:t.market||"TW",currency:t.currency||currencyOfMarket(t.market||"TW"),symbol:String(t.symbol||"").toUpperCase()})) : [],
     cashEntries: Array.isArray(saved?.cashEntries) ? saved.cashEntries.map(e=>({...e,currency:e.currency||"TWD"})) : [],
     fxRates: Array.isArray(saved?.fxRates) ? saved.fxRates : [],
+    exchanges: Array.isArray(saved?.exchanges) ? saved.exchanges : deriveLegacyExchanges(saved),
     prices: {}, snapshots: Array.isArray(saved?.snapshots) ? saved.snapshots : [],
     ui: {...DEFAULT_DATA.ui,...(saved?.ui||{})},
     settings:{...DEFAULT_DATA.settings,...(saved?.settings||{})}
@@ -95,6 +238,63 @@ function calculateCash(){
 }
 function calculateDividends(){const r={TWD:0,USD:0};data.cashEntries.filter(e=>e.type==="dividend").forEach(e=>r[e.currency||"TWD"]+=Number(e.amount||0));return r;}
 
+
+function calculateUsdFxCostSummary(){
+  const pool={trackedUsd:0,untrackedUsd:0,twdCost:0};
+  const consumeUsd=amount=>{
+    amount=Math.max(0,Number(amount||0));
+    const total=pool.trackedUsd+pool.untrackedUsd;
+    if(!(amount>0)||!(total>0))return;
+    const trackedConsume=Math.min(pool.trackedUsd,amount*(pool.trackedUsd/total));
+    const untrackedConsume=Math.min(pool.untrackedUsd,amount-trackedConsume);
+    const avg=pool.trackedUsd>0?pool.twdCost/pool.trackedUsd:0;
+    pool.trackedUsd=Math.max(0,pool.trackedUsd-trackedConsume);
+    pool.untrackedUsd=Math.max(0,pool.untrackedUsd-untrackedConsume);
+    pool.twdCost=Math.max(0,pool.twdCost-avg*trackedConsume);
+    const remainder=amount-trackedConsume-untrackedConsume;
+    if(remainder>0&&pool.trackedUsd>0){
+      const extra=Math.min(pool.trackedUsd,remainder);
+      const nextAvg=pool.trackedUsd>0?pool.twdCost/pool.trackedUsd:0;
+      pool.trackedUsd-=extra;pool.twdCost=Math.max(0,pool.twdCost-nextAvg*extra);
+    }
+  };
+  const events=[];
+  data.exchanges.forEach((x,index)=>events.push({kind:"exchange",date:x.date,createdAt:Number(x.createdAt||0),order:index,payload:x}));
+  data.cashEntries.filter(e=>(e.currency||"TWD")==="USD"&&!e.exchangeGroupId).forEach((e,index)=>events.push({kind:"cash",date:e.date,createdAt:Number(e.createdAt||0),order:100000+index,payload:e}));
+  data.trades.filter(t=>(t.currency||currencyOfMarket(t.market||"TW"))==="USD").forEach((t,index)=>events.push({kind:"trade",date:t.date,createdAt:Number(t.createdAt||0),order:200000+index,payload:t}));
+  events.sort((a,b)=>String(a.date).localeCompare(String(b.date))||a.createdAt-b.createdAt||a.order-b.order);
+  for(const event of events){
+    if(event.kind==="exchange"){
+      const x=event.payload;
+      if(x.direction==="TWD_TO_USD"){
+        pool.trackedUsd+=Number(x.toAmount||0);
+        pool.twdCost+=Number(x.fromAmount||0)+Number(x.fee||0);
+      }else{
+        consumeUsd(Number(x.fromAmount||0)+Number(x.fee||0));
+      }
+    }else if(event.kind==="cash"){
+      const e=event.payload,amount=Number(e.amount||0);
+      if(["deposit","dividend","otherIncome"].includes(e.type))pool.untrackedUsd+=amount;
+      else consumeUsd(amount);
+    }else{
+      const t=normalizeTrade(event.payload),amount=t.price*t.shares;
+      if(t.type==="buy")consumeUsd(amount+t.fee);
+      else pool.untrackedUsd+=Math.max(0,amount-t.fee-t.tax);
+    }
+  }
+  const actualUsd=calculateCash().USD;
+  const calculated=pool.trackedUsd+pool.untrackedUsd;
+  const diff=actualUsd-calculated;
+  if(diff>0)pool.untrackedUsd+=diff;
+  else if(diff<0)consumeUsd(-diff);
+  return {
+    trackedUsd:pool.trackedUsd,
+    untrackedUsd:pool.untrackedUsd,
+    twdCost:pool.twdCost,
+    averageRate:pool.trackedUsd>0?pool.twdCost/pool.trackedUsd:null,
+    actualUsd
+  };
+}
 function currentSnapshot(){
   const p=calculatePortfolio(),cash=calculateCash(),fx=p.fx,tw=p.holdings.filter(h=>h.currency==="TWD").reduce((s,h)=>s+h.estimatedMarketValueNative,0),us=p.holdings.filter(h=>h.currency==="USD").reduce((s,h)=>s+h.estimatedMarketValueNative,0);
   return {date:localDateKey(),capturedAt:new Date().toISOString(),availableTWD:cash.TWD,availableUSD:cash.USD,marketTWD:tw,marketUSD:us,fxRate:fx.rate,totalTWD:cash.TWD+tw+(cash.USD+us)*fx.rate,isEstimated:p.holdings.some(h=>!h.hasCurrentPrice)||fx.estimated,source:"snapshot"};
@@ -139,7 +339,11 @@ function render(){
   document.documentElement.classList.toggle("dark",!!data.settings.darkMode);document.body.classList.toggle("dark",!!data.settings.darkMode);document.documentElement.dataset.fontSize=data.settings.fontSize||"medium";$("themeToggle").textContent=data.settings.darkMode?"☀":"☾";
   const p=calculatePortfolio(),cash=calculateCash(),div=calculateDividends(),fx=p.fx,tw=p.holdings.filter(h=>h.currency==="TWD").reduce((s,h)=>s+h.estimatedMarketValueNative,0),us=p.holdings.filter(h=>h.currency==="USD").reduce((s,h)=>s+h.estimatedMarketValueNative,0),total=cash.TWD+tw+(cash.USD+us)*fx.rate;
   $("homeFxRate").textContent=fx.rate?`1 USD = NT$${fmt(fx.rate,4)}`:"1 USD = NT$—";$("homeFxUpdated").textContent=fx.date?`最近匯率日期：${fx.date}${fx.estimated?"（估算使用）":""}`:"尚未設定匯率";
+  const usdCost=calculateUsdFxCostSummary();
   $("totalAssetsTWD").textContent=money(total);$("availableTWD").textContent=money(cash.TWD);$("availableUSD").textContent=money(cash.USD,"USD");$("availableUSDConverted").textContent=`折合 ${money(cash.USD*fx.rate)}`;$("marketTWD").textContent=money(tw);$("marketUSD").textContent=money(us,"USD");$("marketUSDConverted").textContent=`折合 ${money(us*fx.rate)}`;$("dividendTWD").textContent=money(div.TWD);$("dividendUSD").textContent=money(div.USD,"USD");$("fundsTWD").textContent=money(cash.TWD);$("fundsUSD").textContent=money(cash.USD,"USD");
+  $("avgUsdFxCost").textContent=usdCost.averageRate===null?"尚無資料":`1 USD = NT$${fmt(usdCost.averageRate,4)}`;
+  $("trackedUsdAmount").textContent=money(usdCost.trackedUsd,"USD");
+  $("untrackedUsdAmount").textContent=money(usdCost.untrackedUsd,"USD");
   const updated=p.holdings.filter(h=>h.hasCurrentPrice).length;$("completenessText").innerHTML=p.holdings.length?`已更新 <strong>${updated}/${p.holdings.length}</strong> 檔股價。${fx.rate?"":"<span class='warning'>尚未設定美元匯率。</span>"}`:"尚無持股。";
   $("dashboardHoldings").innerHTML=p.holdings.length?p.holdings.slice(0,4).map(holdingRow).join(""):"尚無持股。";renderHoldings();renderHistory();renderFunds();renderChart();syncSettings();renderBackupReminder();
 }
@@ -162,41 +366,62 @@ window.deleteTrade=id=>{
   data.trades=candidate;saveData();upsertTodaySnapshot();render();
 };
 function cashTypeLabel(t){return ({deposit:"資金存入",withdrawal:"資金提領",dividend:"現金股利",otherIncome:"其他收入",otherExpense:"其他支出"})[t]||t;}
+function exchangeDirectionLabel(direction){return direction==="TWD_TO_USD"?"台幣換美元":"美元換台幣";}
+function exchangeByGroup(group){return data.exchanges.find(x=>x.id===group);}
 function renderFunds(){
-  const manual=data.cashEntries.map(e=>({date:e.date,createdAt:Number(e.createdAt||0),html:`<div class="list-item"><div class="item-top"><span>${e.date} · ${e.currency} · ${cashTypeLabel(e.type)}</span><strong class="${pnlClass(manualCashSigned(e))}">${money(manualCashSigned(e),e.currency)}</strong></div><div class="meta">${escapeHtml(e.note||"")}</div><div class="item-actions"><button onclick="editCash('${e.id}')">編輯</button><button onclick="deleteCash('${e.id}')">刪除</button></div></div>`}));
+  const manual=data.cashEntries.map(e=>{
+    const linked=e.exchangeGroupId?exchangeByGroup(e.exchangeGroupId):null;
+    const rateLine=linked?`<div class="exchange-rate-line">換匯匯率：${fmt(linked.effectiveRate,4)} · ${exchangeDirectionLabel(linked.direction)}</div>`:"";
+    const actions=linked?`<div class="item-actions"><button onclick="deleteExchange('${linked.id}')">刪除整筆換匯</button></div>`:`<div class="item-actions"><button onclick="editCash('${e.id}')">編輯</button><button onclick="deleteCash('${e.id}')">刪除</button></div>`;
+    return {date:e.date,createdAt:Number(e.createdAt||0),html:`<div class="list-item"><div class="item-top"><span>${e.date} · ${e.currency} · ${cashTypeLabel(e.type)}</span><strong class="${pnlClass(manualCashSigned(e))}">${money(manualCashSigned(e),e.currency)}</strong></div><div class="meta">${escapeHtml(e.note||"")}</div>${rateLine}${actions}</div>`};
+  });
   const trades=data.trades.map(r=>{const t=normalizeTrade(r),signed=tradeCashSigned(t);return {date:t.date,createdAt:Number(t.createdAt||0),html:`<div class="list-item"><div class="item-top"><span>${t.date} · ${t.currency} · ${t.type==="buy"?"股票買進":"股票賣出"} · ${escapeHtml(t.symbol)}</span><strong class="${pnlClass(signed)}">${money(signed,t.currency)}</strong></div><div class="meta">由交易紀錄自動產生</div></div>`}});
   const list=[...manual,...trades].sort((a,b)=>b.date.localeCompare(a.date)||b.createdAt-a.createdAt);
   $("cashLedgerList").innerHTML=list.length?list.map(x=>x.html).join(""):"尚無資金異動。";
   const fx=[...data.fxRates].sort((a,b)=>b.date.localeCompare(a.date)||Number(b.createdAt||0)-Number(a.createdAt||0));
-  $("fxList").innerHTML=fx.length?fx.slice(0,12).map(x=>`<div class="list-item"><div class="item-top"><span>${x.date}</span><strong>1 USD = NT$${fmt(x.rate,4)}</strong></div><div class="meta">${escapeHtml(x.note||"")}</div><div class="item-actions"><button onclick="deleteFx('${x.id}')">刪除</button></div></div>`).join(""):"尚未設定匯率。";
+  $("fxList").innerHTML=fx.length?fx.slice(0,12).map(x=>`<div class="list-item"><div class="item-top"><span>${x.date}</span><strong>1 USD = NT$${fmt(x.rate,4)}</strong></div><div class="meta">${escapeHtml(x.note||"")}</div><div class="item-actions">${x.exchangeGroupId?`<button onclick="deleteExchange('${x.exchangeGroupId}')">刪除整筆換匯</button>`:`<button onclick="deleteFx('${x.id}')">刪除</button>`}</div></div>`).join(""):"尚未設定匯率。";
+  const exchanges=[...data.exchanges].sort((a,b)=>b.date.localeCompare(a.date)||Number(b.createdAt||0)-Number(a.createdAt||0));
+  $("exchangeList").innerHTML=exchanges.length?exchanges.map(x=>`<div class="list-item"><div class="exchange-list-grid"><span><strong>${x.date} · ${exchangeDirectionLabel(x.direction)}</strong><br><span class="meta">${x.direction==="TWD_TO_USD"?`${money(x.fromAmount,"TWD")} → ${money(x.toAmount,"USD")}`:`${money(x.fromAmount,"USD")} → ${money(x.toAmount,"TWD")}`}</span></span><strong>${fmt(x.effectiveRate,4)}</strong></div><div class="exchange-rate-line">成交匯率：${fmt(x.quotedRate,4)} · ${x.direction==="TWD_TO_USD"?"含手續費成本":"扣除支出幣別手續費後實收"}：${fmt(x.effectiveRate,4)}</div><div class="meta">${escapeHtml(x.note||"")}</div><div class="item-actions"><button onclick="deleteExchange('${x.id}')">刪除整筆換匯</button></div></div>`).join(""):"尚無換匯紀錄。";
 }
 window.editCash=id=>{
-  const e=data.cashEntries.find(x=>x.id===id);if(!e)return;navTo("funds");$("cashEditId").value=e.id;$("cashCurrency").value=e.currency||"TWD";$("cashType").value=e.type;$("cashDate").value=e.date;$("cashAmount").value=e.amount;$("cashSymbol").value=e.symbol||"";$("cashName").value=e.name||"";$("cashNote").value=e.note||"";$("cashFormTitle").textContent="編輯資金異動";$("cancelCashEdit").classList.remove("hidden");toggleDividend();
+  const e=data.cashEntries.find(x=>x.id===id);if(!e)return;if(e.exchangeGroupId)return alert("換匯產生的資金異動請在換匯明細中刪除整筆後重建。");navTo("funds");$("cashEditId").value=e.id;$("cashCurrency").value=e.currency||"TWD";$("cashType").value=e.type;$("cashDate").value=e.date;$("cashAmount").value=e.amount;$("cashSymbol").value=e.symbol||"";$("cashName").value=e.name||"";$("cashNote").value=e.note||"";$("cashFormTitle").textContent="編輯資金異動";$("cancelCashEdit").classList.remove("hidden");toggleDividend();
 };
-window.deleteCash=id=>{if(!confirm("確定刪除這筆資金異動嗎？"))return;data.cashEntries=data.cashEntries.filter(x=>x.id!==id);saveData();upsertTodaySnapshot();render();};
-window.deleteFx=id=>{if(!confirm("確定刪除這筆匯率嗎？"))return;data.fxRates=data.fxRates.filter(x=>x.id!==id);saveData();upsertTodaySnapshot();render();};
+window.deleteCash=id=>{const e=data.cashEntries.find(x=>x.id===id);if(e?.exchangeGroupId)return deleteExchange(e.exchangeGroupId);if(!confirm("確定刪除這筆資金異動嗎？"))return;data.cashEntries=data.cashEntries.filter(x=>x.id!==id);saveData();upsertTodaySnapshot();render();};
+window.deleteFx=id=>{const x=data.fxRates.find(x=>x.id===id);if(x?.exchangeGroupId)return deleteExchange(x.exchangeGroupId);if(!confirm("確定刪除這筆匯率嗎？"))return;data.fxRates=data.fxRates.filter(x=>x.id!==id);saveData();upsertTodaySnapshot();render();};
+window.deleteExchange=id=>{if(!confirm("確定刪除整筆換匯嗎？對應的資金異動與匯率快照也會一起刪除。"))return;data.exchanges=data.exchanges.filter(x=>x.id!==id);data.cashEntries=data.cashEntries.filter(x=>x.exchangeGroupId!==id);data.fxRates=data.fxRates.filter(x=>x.exchangeGroupId!==id);saveData();upsertTodaySnapshot();render();};
 function syncSettings(){$("feeRate").value=data.settings.feeRate;$("minFee").value=data.settings.minFee;$("stockTaxRate").value=data.settings.stockTaxRate;$("etfTaxRate").value=data.settings.etfTaxRate;$("fontSize").value=data.settings.fontSize;$("backupReminderDays").value=String(data.settings.backupReminderDays);$("lastBackupText").textContent=`上次備份：${formatDateTime(data.settings.lastBackupAt)}`;}
 function updateTradeUI(){const market=$("market").value,c=currencyOfMarket(market),amount=Number($("price").value||0)*Number($("shares").value||0),fee=$("fee").value===""?estimatedFee(amount,market):Number($("fee").value||0),tax=$("type").value==="sell"?($("tax").value===""?estimatedTax(amount,market,$("assetType").value):Number($("tax").value||0)):0;$("tradeCurrency").value=c;$("taxField").classList.toggle("hidden",market==="US"||$("type").value!=="sell");$("tradePreview").innerHTML=`${$("type").value==="buy"?"預估總成本":"預估賣出淨收入"}：<strong>${money($("type").value==="buy"?amount+fee:amount-fee-tax,c)}</strong>`;}
-function resetTrade(){$("tradeForm").reset();$("date").value=today();$("editId").value="";$("tradeFormTitle").textContent="新增交易";$("cancelEdit").classList.add("hidden");updateTradeUI();}
+function resetTrade(){$("tradeForm").reset();$("date").value=today();$("editId").value="";$("tradeFormTitle").textContent="新增交易";$("cancelEdit").classList.add("hidden");$("symbolSuggestions").classList.add("hidden");updateTradeUI();}
 $("tradeForm").addEventListener("input",updateTradeUI);$("market").addEventListener("change",updateTradeUI);
-$("tradeForm").addEventListener("submit",e=>{e.preventDefault();const editId=$("editId").value,market=$("market").value,old=data.trades.find(x=>x.id===editId),t={id:editId||uid(),market,currency:currencyOfMarket(market),type:$("type").value,assetType:$("assetType").value,symbol:$("symbol").value.trim().toUpperCase(),name:$("name").value.trim(),date:$("date").value,price:Number($("price").value),shares:Number($("shares").value),fee:$("fee").value,tax:$("tax").value,note:$("note").value.trim(),createdAt:old?.createdAt||Date.now()};const cand=editId?data.trades.map(x=>x.id===editId?t:x):[...data.trades,t],check=validateInventoryTimeline(cand);if(!check.ok)return alert("賣出股數超過當時庫存。");data.trades=cand;saveData();upsertTodaySnapshot();resetTrade();render();navTo("holdings");});
+$("tradeForm").addEventListener("submit",e=>{e.preventDefault();const editId=$("editId").value,market=$("market").value,old=data.trades.find(x=>x.id===editId),t={id:editId||uid(),market,currency:currencyOfMarket(market),type:$("type").value,assetType:$("assetType").value,symbol:$("symbol").value.trim().toUpperCase(),name:$("name").value.trim(),date:$("date").value,price:Number($("price").value),shares:Number($("shares").value),fee:$("fee").value,tax:$("tax").value,note:$("note").value.trim(),createdAt:old?.createdAt||Date.now()};const mismatch=officialNameMismatch(t);if(mismatch&&!confirm(`股票代號與名單名稱可能不一致。\n\n名單：${mismatch.symbol} ${mismatch.name}\n目前輸入：${t.symbol} ${t.name}\n\n仍然儲存嗎？`))return;const cand=editId?data.trades.map(x=>x.id===editId?t:x):[...data.trades,t],check=validateInventoryTimeline(cand);if(!check.ok)return alert("賣出股數超過當時庫存。");data.trades=cand;saveData();upsertTodaySnapshot();resetTrade();render();navTo("holdings");});
 function toggleDividend(){document.querySelectorAll(".dividend-only").forEach(x=>x.classList.toggle("hidden",$("cashType").value!=="dividend"));}
 $("cashType").addEventListener("change",toggleDividend);
 function resetCash(){$("cashForm").reset();$("cashDate").value=today();$("cashEditId").value="";$("cashFormTitle").textContent="新增資金異動";$("cancelCashEdit").classList.add("hidden");toggleDividend();}
 $("cashForm").addEventListener("submit",e=>{e.preventDefault();const editId=$("cashEditId").value,old=data.cashEntries.find(x=>x.id===editId),entry={id:editId||uid(),currency:$("cashCurrency").value,type:$("cashType").value,date:$("cashDate").value,amount:Number($("cashAmount").value),symbol:$("cashSymbol").value.trim().toUpperCase(),name:$("cashName").value.trim(),note:$("cashNote").value.trim(),createdAt:old?.createdAt||Date.now()};data.cashEntries=editId?data.cashEntries.map(x=>x.id===editId?entry:x):[...data.cashEntries,entry];saveData();upsertTodaySnapshot();resetCash();render();});
 $("fxForm").addEventListener("submit",e=>{e.preventDefault();data.fxRates.push({id:uid(),date:$("fxDate").value,rate:Number($("fxRate").value),note:$("fxNote").value.trim(),createdAt:Date.now()});saveData();upsertTodaySnapshot();$("fxForm").reset();$("fxDate").value=today();render();});
 
+function calculateExchangePreview(){
+  const direction=$("exchangeDirection").value,from=Number($("exchangeFromAmount").value||0),to=Number($("exchangeToAmount").value||0),fee=Number($("exchangeFee").value||0);
+  if(!(from>0&&to>0)){$("exchangePreview").textContent="請輸入換匯金額。";return null;}
+  const twdToUsd=direction==="TWD_TO_USD";
+  const quoted=twdToUsd?from/to:to/from;
+  const effective=twdToUsd?(from+fee)/to:to/(from+fee);
+  $("exchangePreview").innerHTML=`成交匯率：<strong>${fmt(quoted,4)}</strong><br>${twdToUsd?"含手續費實際換匯成本":"扣除支出幣別手續費後實收匯率"}：<strong>${fmt(effective,4)}</strong>`;
+  return {direction,from,to,fee,quoted,effective,twdToUsd};
+}
+["exchangeDirection","exchangeFromAmount","exchangeToAmount","exchangeFee"].forEach(id=>$(id).addEventListener("input",calculateExchangePreview));
+$("exchangeDirection").addEventListener("change",calculateExchangePreview);
 $("exchangeForm").addEventListener("submit",e=>{
   e.preventDefault();
-  const group=uid(),date=$("exchangeDate").value,direction=$("exchangeDirection").value,from=Number($("exchangeFromAmount").value),to=Number($("exchangeToAmount").value),fee=Number($("exchangeFee").value||0),note=$("exchangeNote").value.trim();
-  if(!(from>0&&to>0))return alert("換匯金額必須大於 0。");
-  const twdToUsd=direction==="TWD_TO_USD",fromCurrency=twdToUsd?"TWD":"USD",toCurrency=twdToUsd?"USD":"TWD",rate=twdToUsd?from/to:to/from;
-  data.cashEntries.push({id:uid(),exchangeGroupId:group,currency:fromCurrency,type:"otherExpense",date,amount:from+fee,note:`換匯支出${fee?`（含手續費 ${money(fee,fromCurrency)}）`:""} ${note}`.trim(),createdAt:Date.now()});
-  data.cashEntries.push({id:uid(),exchangeGroupId:group,currency:toCurrency,type:"otherIncome",date,amount:to,note:`換匯收入 ${note}`.trim(),createdAt:Date.now()+1});
-  data.fxRates.push({id:uid(),exchangeGroupId:group,date,rate,note:`實際換匯匯率 ${note}`.trim(),createdAt:Date.now()+2});
-  saveData();upsertTodaySnapshot();$("exchangeForm").reset();$("exchangeDate").value=today();$("exchangeFee").value="0";render();
+  const calc=calculateExchangePreview();if(!calc)return alert("換匯金額必須大於 0。");
+  const group=uid(),date=$("exchangeDate").value,note=$("exchangeNote").value.trim(),fromCurrency=calc.twdToUsd?"TWD":"USD",toCurrency=calc.twdToUsd?"USD":"TWD";
+  const exchange={id:group,date,direction:calc.direction,fromCurrency,toCurrency,fromAmount:calc.from,toAmount:calc.to,fee:calc.fee,feeCurrency:fromCurrency,quotedRate:calc.quoted,effectiveRate:calc.effective,note,createdAt:Date.now()};
+  data.exchanges.push(exchange);
+  data.cashEntries.push({id:uid(),exchangeGroupId:group,currency:fromCurrency,type:"otherExpense",date,amount:calc.from+calc.fee,note:`換匯支出${calc.fee?`（含手續費 ${money(calc.fee,fromCurrency)}）`:""} ${note}`.trim(),createdAt:Date.now()+1});
+  data.cashEntries.push({id:uid(),exchangeGroupId:group,currency:toCurrency,type:"otherIncome",date,amount:calc.to,note:`換匯收入 ${note}`.trim(),createdAt:Date.now()+2});
+  data.fxRates.push({id:uid(),exchangeGroupId:group,date,rate:calc.quoted,note:`實際換匯匯率 ${note}`.trim(),createdAt:Date.now()+3});
+  saveData();upsertTodaySnapshot();$("exchangeForm").reset();$("exchangeDate").value=today();$("exchangeFee").value="0";calculateExchangePreview();render();
 });
-
 $("priceForm").addEventListener("submit",e=>{if(e.submitter?.value!=="save")return;e.preventDefault();data.prices[$("priceKey").value]={price:Number($("currentPrice").value),updatedAt:new Date().toISOString()};saveData();upsertTodaySnapshot();$("priceDialog").close();render();});
 $("backToHoldings").addEventListener("click",()=>navTo("holdings"));$("themeToggle").addEventListener("click",()=>{data.settings.darkMode=!data.settings.darkMode;saveData();render();});
 document.querySelectorAll(".segment").forEach(b=>b.addEventListener("click",()=>{data.ui.marketFilter=b.dataset.market;document.querySelectorAll(".segment").forEach(x=>x.classList.toggle("active",x===b));saveData();renderHoldings();}));
@@ -207,10 +432,18 @@ $("displaySettingsForm").addEventListener("submit",e=>{e.preventDefault();data.s
 $("settingsForm").addEventListener("submit",e=>{e.preventDefault();data.settings.feeRate=Number($("feeRate").value);data.settings.minFee=Number($("minFee").value);data.settings.stockTaxRate=Number($("stockTaxRate").value);data.settings.etfTaxRate=Number($("etfTaxRate").value);saveData();render();alert("台股費率已儲存。");});
 function download(content,name,type){const blob=new Blob([content],{type}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 $("exportJson").addEventListener("click",()=>{data.settings.lastBackupAt=new Date().toISOString();saveData();download(JSON.stringify({...data,appVersion:APP_VERSION,historicalAssetPoints:buildHistoricalPoints()},null,2),`stock_record_backup_${today()}.json`,"application/json");render();});
-$("exportCsv").addEventListener("click",()=>{const rows=[["市場","幣別","日期","代號","名稱","類型","價格","股數","手續費","證交稅"]];data.trades.forEach(r=>{const t=normalizeTrade(r);rows.push([t.market,t.currency,t.date,t.symbol,t.name,t.type,t.price,t.shares,t.fee,t.tax]);});const csv="\ufeff"+rows.map(r=>r.map(v=>`"${String(v??"").replace(/"/g,'""')}"`).join(",")).join("\n");download(csv,`stock_record_${today()}.csv`,"text/csv;charset=utf-8");});
+$("exportCsv").addEventListener("click",()=>{const rows=[["市場","幣別","日期","代號","名稱","類型","價格","股數","手續費","證交稅"]];data.trades.forEach(r=>{const t=normalizeTrade(r);rows.push([t.market,t.currency,t.date,t.symbol,t.name,t.type,t.price,t.shares,t.fee,t.tax]);});rows.push([]);rows.push(["換匯日期","方向","支出幣別","支出金額","取得幣別","取得金額","手續費","成交匯率","含費實際匯率","備註"]);data.exchanges.forEach(x=>rows.push([x.date,exchangeDirectionLabel(x.direction),x.fromCurrency,x.fromAmount,x.toCurrency,x.toAmount,x.fee,x.quotedRate,x.effectiveRate,x.note||""]));const csv="\ufeff"+rows.map(r=>r.map(v=>`"${String(v??"").replace(/"/g,'""')}"`).join(",")).join("\n");download(csv,`stock_record_${today()}.csv`,"text/csv;charset=utf-8");});
 $("importJson").addEventListener("change",async e=>{const f=e.target.files[0];if(!f)return;try{data=migrate(JSON.parse(await f.text()));saveData();upsertTodaySnapshot();render();alert("匯入完成。");}catch{alert("匯入失敗。");}e.target.value="";});
 $("clearData").addEventListener("click",()=>{if(confirm("確定清除全部資料嗎？")){data=cloneDefault();saveData();upsertTodaySnapshot();render();}});
-$("fxDate").value=today();$("exchangeDate").value=today();resetTrade();resetCash();upsertTodaySnapshot();render();
+
+$("symbolSearch").addEventListener("input",e=>{renderSymbolSuggestions(e.target.value);const exact=String(e.target.value||"").trim().toUpperCase();if(exact&&!exact.includes(" "))autoFillExactSymbol(exact);});
+$("symbol").addEventListener("input",e=>{e.target.value=e.target.value.toUpperCase();autoFillExactSymbol(e.target.value);});
+$("market").addEventListener("change",()=>{renderSymbolSuggestions($("symbolSearch").value);autoFillExactSymbol($("symbol").value);});
+document.addEventListener("click",e=>{if(!e.target.closest(".symbol-search-field"))$("symbolSuggestions").classList.add("hidden");});
+$("refreshSymbols").addEventListener("click",refreshOfficialSymbols);
+
+$("fxDate").value=today();$("exchangeDate").value=today();resetTrade();resetCash();calculateExchangePreview();upsertTodaySnapshot();render();
+loadSymbolDb();
 if("serviceWorker"in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}));
 
 $("cancelEdit").addEventListener("click",resetTrade);

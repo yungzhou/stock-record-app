@@ -23,7 +23,7 @@
 
   <main>
     <section id="dashboard" class="page active">
-      <div class="version-row"><span class="version-badge">版本 v1.8</span></div>
+      <div class="version-row"><span class="version-badge">版本 v2.0</span></div>
 
       <article class="card asset-chart-card">
         <div class="section-head">
@@ -180,6 +180,11 @@
             <label>幣別
               <input id="tradeCurrency" readonly />
             </label>
+            <label class="wide symbol-search-field">搜尋股票代號或名稱
+              <input id="symbolSearch" placeholder="例如：2330、台積電、AAPL、Apple" autocomplete="off" />
+              <div id="symbolSuggestions" class="symbol-suggestions hidden"></div>
+              <span class="field-hint">輸入完整代號時會自動帶入名稱；找不到時仍可手動輸入。</span>
+            </label>
             <label>股票代號
               <input id="symbol" placeholder="例如：2330 或 AAPL" required />
             </label>
@@ -235,6 +240,9 @@
         <div class="summary-grid">
           <div class="mini-summary"><span>台幣可用</span><strong id="fundsTWD">NT$0</strong></div>
           <div class="mini-summary"><span>美元可用</span><strong id="fundsUSD">US$0</strong></div>
+          <div class="mini-summary"><span>美元平均換匯成本</span><strong id="avgUsdFxCost">尚無資料</strong></div>
+          <div class="mini-summary"><span>有換匯成本紀錄的美元</span><strong id="trackedUsdAmount">US$0</strong></div>
+          <div class="mini-summary"><span>未指定換匯成本的美元</span><strong id="untrackedUsdAmount">US$0</strong></div>
         </div>
       </article>
 
@@ -324,8 +332,15 @@
           <label>備註
             <input id="exchangeNote" placeholder="例如：銀行換匯" />
           </label>
+          <div class="wide calc-preview" id="exchangePreview">請輸入換匯金額。</div>
           <div class="wide"><button type="submit" class="primary">儲存換匯</button></div>
         </form>
+      </article>
+
+      <article class="card">
+        <h2>換匯明細</h2>
+        <p class="helper">每筆換匯會保存成交匯率、含手續費實際匯率，以及對應的資金異動。</p>
+        <div id="exchangeList" class="empty">尚無換匯紀錄。</div>
       </article>
 
       <article class="card">
@@ -379,6 +394,15 @@
       </article>
 
       <article class="card">
+        <h2>股票名單</h2>
+        <p class="helper" id="symbolListStatus">正在載入離線股票名單。</p>
+        <div class="button-stack">
+          <button id="refreshSymbols">更新股票名單</button>
+        </div>
+        <p class="helper">台股更新會優先使用臺灣證券交易所官方 OpenAPI；美股離線名單取自 Nasdaq Trader Symbol Directory。更新失敗時仍可使用內建名單與手動輸入。</p>
+      </article>
+
+      <article class="card">
         <h2>資料備份</h2>
         <p class="helper" id="lastBackupText">上次備份：尚未備份</p>
         <div class="button-stack">
@@ -392,8 +416,8 @@
       </article>
 
       <article class="card">
-        <h2>v1.8 說明</h2>
-        <p class="helper">台幣與美元分開計算。首頁總資產以台幣顯示；美元資產依匯率換算。歷史圖表使用當時已記錄匯率快照。</p>
+        <h2>v2.0 說明</h2>
+        <p class="helper">新增交易時可搜尋台股、美股與 ETF 代號或名稱。完整代號會自動帶入股票名稱，仍保留手動修改與手動輸入。</p>
       </article>
     </section>
   </main>

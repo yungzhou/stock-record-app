@@ -107,3 +107,56 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
   .stock-name { font-size: calc(14px * var(--font-scale)); }
   .number-cell { font-size: calc(12px * var(--font-scale)); }
 }
+
+
+/* v1.9 美元換匯成本 */
+.exchange-rate-line {
+  margin-top: 4px;
+  color: var(--warning);
+  font-size: calc(12px * var(--font-scale));
+  line-height: 1.55;
+}
+.exchange-list-grid {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px 12px;
+  align-items: start;
+}
+.exchange-list-grid strong { text-align: right; }
+
+
+/* v2.0 股票代號智慧搜尋 */
+.symbol-search-field { position: relative; }
+.field-hint { color: var(--muted); font-size: calc(12px * var(--font-scale)); line-height: 1.5; }
+.symbol-suggestions {
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  right: 0;
+  top: calc(100% - 20px);
+  max-height: 310px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.symbol-suggestion {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: start;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  padding: 11px 12px;
+  text-align: left;
+  background: var(--surface);
+}
+.symbol-suggestion:last-child { border-bottom: 0; }
+.symbol-suggestion:active { background: var(--surface-2); }
+.symbol-suggestion-main { min-width: 0; }
+.symbol-suggestion-symbol { font-weight: 800; color: var(--text); }
+.symbol-suggestion-name { margin-top: 3px; color: var(--text); line-height: 1.35; }
+.symbol-suggestion-meta { flex: 0 0 auto; color: var(--muted); font-size: calc(11px * var(--font-scale)); text-align: right; }
