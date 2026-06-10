@@ -160,3 +160,8 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 .symbol-suggestion-symbol { font-weight: 800; color: var(--text); }
 .symbol-suggestion-name { margin-top: 3px; color: var(--text); line-height: 1.35; }
 .symbol-suggestion-meta { flex: 0 0 auto; color: var(--muted); font-size: calc(11px * var(--font-scale)); text-align: right; }
+
+
+/* v2.1：直接在股票代號欄位搜尋 */
+.symbol-search-field { position: relative; }
+.symbol-search-field .symbol-suggestions { top: calc(100% - 18px); }

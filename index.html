@@ -23,7 +23,7 @@
 
   <main>
     <section id="dashboard" class="page active">
-      <div class="version-row"><span class="version-badge">版本 v2.0</span></div>
+      <div class="version-row"><span class="version-badge">版本 v2.1</span></div>
 
       <article class="card asset-chart-card">
         <div class="section-head">
@@ -180,16 +180,13 @@
             <label>幣別
               <input id="tradeCurrency" readonly />
             </label>
-            <label class="wide symbol-search-field">搜尋股票代號或名稱
-              <input id="symbolSearch" placeholder="例如：2330、台積電、AAPL、Apple" autocomplete="off" />
+            <label class="symbol-search-field">股票代號
+              <input id="symbol" placeholder="輸入 2330、AAPL 或部分代號" autocomplete="off" required />
               <div id="symbolSuggestions" class="symbol-suggestions hidden"></div>
-              <span class="field-hint">輸入完整代號時會自動帶入名稱；找不到時仍可手動輸入。</span>
-            </label>
-            <label>股票代號
-              <input id="symbol" placeholder="例如：2330 或 AAPL" required />
+              <span class="field-hint">輸入代號或部分代號後會立即搜尋；選擇後自動填入完整股票名稱。</span>
             </label>
             <label>股票名稱
-              <input id="name" placeholder="例如：台積電或 Apple" required />
+              <input id="name" placeholder="選擇代號後自動帶入，也可手動修改" required />
             </label>
             <label>交易日期
               <input id="date" type="date" required />
@@ -416,8 +413,8 @@
       </article>
 
       <article class="card">
-        <h2>v2.0 說明</h2>
-        <p class="helper">新增交易時可搜尋台股、美股與 ETF 代號或名稱。完整代號會自動帶入股票名稱，仍保留手動修改與手動輸入。</p>
+        <h2>v2.1 說明</h2>
+        <p class="helper">新增交易時直接在股票代號欄輸入代號或部分代號，系統會立即搜尋並自動填入股票名稱。仍保留手動修改與手動輸入。</p>
       </article>
     </section>
   </main>
