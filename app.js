@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v2.0";
+const APP_VERSION = "v2.1";
 const STORAGE_KEY = "stockRecordAppV1";
 const DEFAULT_DATA = {
   trades: [], cashEntries: [], fxRates: [], exchanges: [], prices: {}, snapshots: [],
@@ -77,7 +77,7 @@ function findSymbolMatches(query,market=$("market")?.value||"TW"){
 function symbolLabel(item){return `${item.exchange||item.market} · ${item.type==="etf"?"ETF":"股票"}`;}
 function selectSymbol(market,symbol){
   const item=(symbolDb[market]||[]).find(x=>x.symbol===symbol);if(!item)return;
-  $("market").value=item.market;$("symbol").value=item.symbol;$("name").value=item.name;$("assetType").value=item.type;$("symbolSearch").value=`${item.symbol} ${item.name}`;
+  $("market").value=item.market;$("symbol").value=item.symbol;$("name").value=item.name;$("assetType").value=item.type;
   $("symbolSuggestions").classList.add("hidden");updateTradeUI();
 }
 window.selectSymbol=selectSymbol;
@@ -102,21 +102,7 @@ async function refreshOfficialSymbols(){
     const rows=await fetch("https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_AVG_ALL").then(r=>{if(!r.ok)throw new Error("TWSE");return r.json();});
     const official=rows.map(row=>({symbol:String(row.Code||row.code||"").trim(),name:String(row.Name||row.name||"").trim(),market:"TW",exchange:"TWSE",type:/^00/.test(String(row.Code||""))?"etf":"stock"})).filter(x=>x.symbol&&x.name);
     twAdded=official.length;symbolDb.TW=mergeSymbolLists(symbolDb.TW,official).filter(x=>x.market==="TW");
-  }catch{notes.push("上市台股官方更新失敗，保留原名單");}
-  try{
-    const response=await fetch("https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_wn1430_result.php?l=zh-tw&o=data&se=EW");
-    if(!response.ok)throw new Error("TPEx");
-    const buffer=await response.arrayBuffer();
-    let text;
-    try{text=new TextDecoder("big5").decode(buffer);}catch{text=new TextDecoder("utf-8").decode(buffer);}
-    const parseCsvLine=line=>{
-      const cells=[];let current="",quoted=false;
-      for(let i=0;i<line.length;i++){const ch=line[i];if(ch==='"'&&line[i+1]==='"'){current+='"';i++;}else if(ch==='"')quoted=!quoted;else if(ch===","&&!quoted){cells.push(current.trim());current="";}else current+=ch;}
-      cells.push(current.trim());return cells;
-    };
-    const otc=text.split(/\r?\n/).map(parseCsvLine).map(cols=>({symbol:String(cols[0]||"").replace(/["=]/g,"").trim(),name:String(cols[1]||"").replace(/^"|"$/g,"").trim(),market:"TW",exchange:"TPEx",type:/^00/.test(String(cols[0]||""))?"etf":"stock"})).filter(x=>/^\d{4,6}[A-Z]?$/.test(x.symbol)&&x.name);
-    twAdded+=otc.length;symbolDb.TW=mergeSymbolLists(symbolDb.TW,otc).filter(x=>x.market==="TW");
-  }catch{notes.push("上櫃官方更新失敗，保留內建上櫃備援名單");}
+  }catch{notes.push("台股官方更新失敗，保留原名單");}
   try{
     const [nasdaq,other]=await Promise.all([
       fetch("https://www.nasdaqtrader.com/dynamic/symdir/nasdaqlisted.txt").then(r=>{if(!r.ok)throw new Error("NASDAQ");return r.text();}),
@@ -436,9 +422,14 @@ $("exportCsv").addEventListener("click",()=>{const rows=[["市場","幣別","日
 $("importJson").addEventListener("change",async e=>{const f=e.target.files[0];if(!f)return;try{data=migrate(JSON.parse(await f.text()));saveData();upsertTodaySnapshot();render();alert("匯入完成。");}catch{alert("匯入失敗。");}e.target.value="";});
 $("clearData").addEventListener("click",()=>{if(confirm("確定清除全部資料嗎？")){data=cloneDefault();saveData();upsertTodaySnapshot();render();}});
 
-$("symbolSearch").addEventListener("input",e=>{renderSymbolSuggestions(e.target.value);const exact=String(e.target.value||"").trim().toUpperCase();if(exact&&!exact.includes(" "))autoFillExactSymbol(exact);});
-$("symbol").addEventListener("input",e=>{e.target.value=e.target.value.toUpperCase();autoFillExactSymbol(e.target.value);});
-$("market").addEventListener("change",()=>{renderSymbolSuggestions($("symbolSearch").value);autoFillExactSymbol($("symbol").value);});
+$("symbol").addEventListener("input",e=>{
+  e.target.value=e.target.value.toUpperCase();
+  renderSymbolSuggestions(e.target.value);
+  autoFillExactSymbol(e.target.value);
+});
+$("symbol").addEventListener("focus",e=>{if(e.target.value.trim())renderSymbolSuggestions(e.target.value);});
+$("symbol").addEventListener("blur",()=>setTimeout(()=>{if(!$("symbol").value.trim())$("symbolSuggestions").classList.add("hidden");},120));
+$("market").addEventListener("change",()=>{renderSymbolSuggestions($("symbol").value);autoFillExactSymbol($("symbol").value);});
 document.addEventListener("click",e=>{if(!e.target.closest(".symbol-search-field"))$("symbolSuggestions").classList.add("hidden");});
 $("refreshSymbols").addEventListener("click",refreshOfficialSymbols);
 
